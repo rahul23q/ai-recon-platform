@@ -1,0 +1,90 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "recon-platform"
+version = "0.1.0"
+description = "AI-powered Web Application Security Reconnaissance Platform (authorized testing only)"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Proprietary - authorized security testing only" }
+authors = [{ name = "recon-platform" }]
+
+# Core runtime dependencies. Heavy / optional capabilities (vision, browser,
+# distributed workers) live in the extras below so the foundation installs and
+# runs without them.
+dependencies = [
+    "pydantic>=2.6",
+    "pydantic-settings>=2.2",
+    "httpx>=0.27",
+    "structlog>=24.1",
+    "typer>=0.12",
+    "rich>=13.7",
+    "jinja2>=3.1",
+    "anyio>=4.3",
+]
+
+[project.optional-dependencies]
+# LLM reasoning (LangGraph / LangChain / Anthropic Claude)
+llm = [
+    "langchain>=0.2",
+    "langchain-anthropic>=0.1",
+    "langgraph>=0.1",
+    "anthropic>=0.34",
+]
+# Web API + realtime dashboard
+api = [
+    "fastapi>=0.111",
+    "uvicorn[standard]>=0.30",
+    "websockets>=12.0",
+]
+# Persistence / distribution
+infra = [
+    "redis>=5.0",
+    "celery>=5.4",
+    "sqlalchemy>=2.0",
+    "psycopg[binary]>=3.1",
+]
+# Browser + vision agents (large; install explicitly)
+browser = ["playwright>=1.44"]
+vision = ["opencv-python-headless>=4.9", "easyocr>=1.7", "numpy>=1.26"]
+# Everything for local development
+dev = [
+    "pytest>=8.1",
+    "pytest-asyncio>=0.23",
+    "ruff>=0.4",
+    "mypy>=1.10",
+]
+
+[project.scripts]
+recon = "recon_platform.cli:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/recon_platform"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "ASYNC"]
+# ASYNC109: `timeout` is an intentional part of the MessageBus request contract.
+ignore = ["ASYNC109"]
+
+[tool.ruff.lint.per-file-ignores]
+# Typer requires Option/Argument calls in defaults; CLI writes a report file.
+"src/recon_platform/cli.py" = ["B008", "ASYNC240"]
+# StrEnum(str, Enum) is an intentional, py3.11-compatible base class.
+"src/recon_platform/domain/enums.py" = ["UP042"]
+
+[tool.mypy]
+python_version = "3.11"
+plugins = ["pydantic.mypy"]
+ignore_missing_imports = true
