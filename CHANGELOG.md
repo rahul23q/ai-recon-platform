@@ -4,6 +4,54 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.0] — 2026-06-29
+
+### Phase 3 — Vision Agent (Completed)
+
+An OCR + visual-intelligence **Vision Agent** that understands web pages from the
+screenshots the Browser agent captures, wired behind the existing `Agent`
+Protocol and orchestrator without rewriting any Phase-1/2 layer. Opt-in and off
+by default; degrades to a clean no-op when disabled or when no vision backend is
+installed. Pipeline is now Planner → Recon → Browser → **Vision** → Analysis →
+Reporting.
+
+#### Added
+
+- **Vision infrastructure** (`vision/`): provider-independent `OCRProvider`
+  (EasyOCR / RapidOCR / PaddleOCR, with an always-available null fallback and a
+  name-based factory), a dependency-free `HeuristicDetector` + page classifier +
+  text extractors (emails, phones, URLs, internal hosts, JWT/AWS/Google/GitHub/
+  Slack secrets), a `VisionSession` (lazy image stack, OCR → detection →
+  classification → OpenCV QR scan, best-effort bounding-box annotation), and a
+  `VisionModelProvider` interface for future GPT-4V / Claude / Gemini / Qwen-VL.
+- **Vision modules**: `screenshot_ingest` (→ `SCREENSHOT` assets + cached
+  analysis + page classification), `ocr_text` (page text, headings, emails, URLs,
+  internal endpoints, phones, secrets), `object_detection` (→ `VISUAL_ELEMENT`
+  with `element_type` button/form/login/search/nav/captcha/cookie/MFA/error/popup),
+  and `qr_codes` (→ `QR_CODE`).
+- **Asset types**: `SCREENSHOT`, `VISUAL_ELEMENT`, `TEXT_REGION`, `QR_CODE`, and a
+  `DEPICTS` relation linking a screenshot to the page it shows.
+- **`VisionAgent`**: reuses Browser screenshots (never re-captures), populates the
+  graph, records a trace per module, and emits `vision.started` / `vision.ocr` /
+  `vision.object_detected` / `vision.qr_detected` / `vision.completed` A2A events.
+- **Orchestration**: an independent `vision` step between browser and analysis
+  (sequential path + LangGraph node) that runs only when enabled; the Planner's
+  3-task plan is untouched.
+- **Analysis**: additive rules for exposed secrets in screenshots (HIGH),
+  sensitive on-screen information / PII / internal URLs, visually-identified
+  login / admin / payment pages, login-without-MFA, and a visual-capture summary.
+- **Reporting**: a "Visual Intelligence" section (page types, element counts, OCR
+  provider, annotated paths) and an embedded screenshot gallery in HTML.
+- **Tooling & surfaces**: `VisionPlugin` (`plugins/vision.py`) exposes the vision
+  modules in the MCP catalogue when enabled; `recon passive-recon --vision` and a
+  new `recon vision <target>` command (both imply the browser agent); a `vision`
+  flag on the API `RunRequest`; `RECON_VISION__*` settings.
+- **Tests**: hermetic vision tests (no OCR model downloads, no image libraries) —
+  pure-function coverage for the detector / classifier / extractors plus
+  disabled-by-default, enabled-stubbed, and graceful-degradation pipeline tests.
+
+[0.3.0]: https://github.com/OWNER/recon-platform/releases/tag/v0.3.0
+
 ## [0.2.0] — 2026-06-29
 
 ### Phase 2 — Browser Agent (Completed)

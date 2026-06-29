@@ -10,6 +10,7 @@ from __future__ import annotations
 import html
 
 from recon_platform.core.exceptions import ConfigurationError
+from recon_platform.domain.enums import AssetType
 from recon_platform.domain.schemas import ReportBundle
 
 _SECTION_ORDER = ["critical", "high", "medium", "low", "info"]
@@ -98,6 +99,36 @@ class MarkdownRenderer:
                 lines.append(f"- `{v}`")
             lines.append("")
 
+        # Visual intelligence (Phase 3) — only when screenshots were analyzed.
+        screenshots = [a for a in bundle.assets if a.type == AssetType.SCREENSHOT]
+        if screenshots:
+            elements = [a for a in bundle.assets if a.type == AssetType.VISUAL_ELEMENT]
+            lines.append("## Visual Intelligence")
+            lines.append("")
+            for s in screenshots[:20]:
+                page = s.attributes.get("page_type", "unknown")
+                conf = s.attributes.get("page_confidence", 0)
+                ocr = s.attributes.get("ocr_provider", "null")
+                n = s.attributes.get("elements", 0)
+                lines.append(f"### `{s.value}`")
+                lines.append("")
+                lines.append(
+                    f"- **Page type:** {page} (confidence {conf}) · "
+                    f"**Elements:** {n} · **OCR:** {ocr}"
+                )
+                annotated = s.attributes.get("annotated")
+                if annotated:
+                    lines.append(f"- **Annotated:** `{annotated}`")
+                lines.append("")
+            if elements:
+                by_kind: dict[str, int] = {}
+                for e in elements:
+                    kind = str(e.attributes.get("element_type", "element"))
+                    by_kind[kind] = by_kind.get(kind, 0) + 1
+                summary = ", ".join(f"{k}: {v}" for k, v in sorted(by_kind.items()))
+                lines.append(f"**Detected elements:** {summary}")
+                lines.append("")
+
         # Appendix: reasoning trace
         lines.append("## Appendix — Reasoning Trace")
         lines.append("")
@@ -119,6 +150,7 @@ class HTMLRenderer:
         # Minimal, dependency-free HTML wrapper preserving the Markdown as text.
         body = html.escape(md)
         eng = bundle.engagement
+        gallery = self._gallery(bundle)
         return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -129,13 +161,33 @@ class HTMLRenderer:
         line-height: 1.5; color: #1a1a1a; }}
  pre {{ white-space: pre-wrap; }}
  header {{ border-bottom: 2px solid #ddd; margin-bottom: 1rem; }}
+ figure {{ margin: 1rem 0; }}
+ figure img {{ max-width: 100%; border: 1px solid #ccc; }}
+ figcaption {{ font-size: 0.85rem; color: #555; }}
 </style>
 </head>
 <body>
 <header><h1>Recon Report — {html.escape(eng.target)}</h1></header>
 <pre>{body}</pre>
+{gallery}
 </body>
 </html>"""
+
+    def _gallery(self, bundle: ReportBundle) -> str:
+        """Embed analyzed screenshots (annotated when available) for the report."""
+        shots = [a for a in bundle.assets if a.type == AssetType.SCREENSHOT]
+        if not shots:
+            return ""
+        figures: list[str] = ["<section><h2>Screenshots</h2>"]
+        for s in shots[:20]:
+            src = s.attributes.get("annotated") or s.value
+            page = html.escape(str(s.attributes.get("page_type", "unknown")))
+            figures.append(
+                f'<figure><img src="{html.escape(str(src))}" alt="screenshot">'
+                f"<figcaption>{html.escape(str(s.value))} — {page}</figcaption></figure>"
+            )
+        figures.append("</section>")
+        return "\n".join(figures)
 
 
 _RENDERERS = {r.format: r for r in (MarkdownRenderer(), HTMLRenderer(), JSONRenderer())}

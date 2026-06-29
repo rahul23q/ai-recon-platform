@@ -71,6 +71,35 @@ class BrowserSettings(BaseSettings):
     max_pages: int = 1
 
 
+class VisionSettings(BaseSettings):
+    """Vision-agent configuration (OCR + visual intelligence over screenshots).
+
+    Off by default and provider-independent: the OCR backend and the (future)
+    vision-LLM backend are selected by name and resolved lazily, so the platform
+    installs and runs without the heavy ``vision`` extra. When disabled or when
+    no vision backend is importable, the vision step degrades to a clean no-op.
+    """
+
+    model_config = SettingsConfigDict(env_prefix="RECON_VISION__")
+
+    enabled: bool = False
+    # OCR provider: easyocr | rapidocr | paddleocr | null. Unknown / unavailable
+    # providers fall back to the null provider (empty OCR) so runs never crash.
+    ocr_provider: str = "easyocr"
+    languages: list[str] = Field(default_factory=lambda: ["en"])
+    # Object detector: heuristic (OCR-text driven, dependency-free) | null.
+    detector: str = "heuristic"
+    # Future multimodal LLM backend: none | claude | openai | gemini | … (the
+    # interface exists now; concrete providers arrive in a later phase).
+    model_provider: str = "none"
+    # Analysis budget + thresholds.
+    max_screenshots: int = 20
+    min_confidence: float = 0.4
+    # Annotated screenshots (bounding boxes) — best-effort, requires Pillow.
+    annotate: bool = True
+    annotate_dir: str = "reports/vision"
+
+
 class Settings(BaseSettings):
     """Root settings object — the single source of truth for configuration."""
 
@@ -86,6 +115,7 @@ class Settings(BaseSettings):
     http: HTTPSettings = Field(default_factory=HTTPSettings)
     api: APISettings = Field(default_factory=APISettings)
     browser: BrowserSettings = Field(default_factory=BrowserSettings)
+    vision: VisionSettings = Field(default_factory=VisionSettings)
 
     # Engagement guardrail: when true, targets must pass the authorization gate.
     authorized_only: bool = True

@@ -32,7 +32,7 @@ def create_app(container: Container | None = None):  # noqa: C901 - factory
     from pydantic import BaseModel
 
     container = container or build_container()
-    app = FastAPI(title="recon-platform", version="0.2.0")
+    app = FastAPI(title="recon-platform", version="0.3.0")
 
     # In-memory run registry (swap for Redis/Postgres in the infra config).
     runs: dict[str, dict[str, Any]] = {}
@@ -44,6 +44,9 @@ def create_app(container: Container | None = None):  # noqa: C901 - factory
         # Opt-in browser agent (requires the 'browser' extra; degrades to a
         # no-op when Playwright is unavailable).
         browser: bool = False
+        # Opt-in vision agent (OCR + visual intelligence over screenshots).
+        # Implies the browser agent, since it analyzes its screenshots.
+        vision: bool = False
 
     @app.get("/healthz")
     async def healthz() -> dict[str, str]:
@@ -58,12 +61,14 @@ def create_app(container: Container | None = None):  # noqa: C901 - factory
     async def start_run(req: RunRequest) -> dict[str, str]:
         # Each run gets its own orchestrator (fresh graph/memory) via a fresh
         # container, so concurrent runs don't share state. An explicit Settings
-        # is used only when the browser agent is requested for this run.
-        if req.browser:
+        # is used only when the browser / vision agents are requested. Vision
+        # implies browser (it analyzes the browser's screenshots).
+        if req.browser or req.vision:
             from recon_platform.core.config import Settings
 
             run_settings = Settings()
-            run_settings.browser.enabled = True
+            run_settings.browser.enabled = req.browser or req.vision
+            run_settings.vision.enabled = req.vision
             run_container = build_container(run_settings)
         else:
             run_container = build_container()

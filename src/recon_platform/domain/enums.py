@@ -69,6 +69,13 @@ class AssetType(StrEnum):
     SECRET = "secret"
     HEADER = "header"
     PORT = "port"
+    # Visual assets (Phase 3 — Vision agent). VISUAL_ELEMENT carries its concrete
+    # kind (button/form/login/…) in ``attributes["element_type"]`` so the enum
+    # stays small while remaining expressive, mirroring the HEADER convention.
+    SCREENSHOT = "screenshot"
+    VISUAL_ELEMENT = "visual_element"
+    TEXT_REGION = "text_region"
+    QR_CODE = "qr_code"
 
 
 class RelationType(StrEnum):
@@ -81,6 +88,7 @@ class RelationType(StrEnum):
     EXPOSES = "exposes"
     ISSUED_FOR = "issued_for"
     CONTAINS = "contains"
+    DEPICTS = "depicts"  # a screenshot depicts a page / URL
 
 
 class WorkflowType(StrEnum):

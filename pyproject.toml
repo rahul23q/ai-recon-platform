@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "recon-platform"
-version = "0.2.0"
+version = "0.3.0"
 description = "AI-powered Web Application Security Reconnaissance Platform (authorized testing only)"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -48,7 +48,15 @@ infra = [
 ]
 # Browser + vision agents (large; install explicitly)
 browser = ["playwright>=1.44"]
-vision = ["opencv-python-headless>=4.9", "easyocr>=1.7", "numpy>=1.26"]
+# OCR + visual intelligence. EasyOCR is the default engine; RapidOCR / PaddleOCR
+# are drop-in alternatives (install explicitly). Pillow handles image sizing and
+# bounding-box annotation; OpenCV powers QR-code detection.
+vision = [
+    "opencv-python-headless>=4.9",
+    "easyocr>=1.7",
+    "numpy>=1.26",
+    "Pillow>=10.0",
+]
 # Everything for local development
 dev = [
     "pytest>=8.1",

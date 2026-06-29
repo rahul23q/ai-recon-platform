@@ -11,8 +11,8 @@ the established Protocol seams (agents, tools, renderers, bus, memory).
 |------:|-----------|:------:|
 | 1 | Foundation | ✅ |
 | 2 | Browser Agent | ✅ |
-| 3 | Vision Agent | 🔜 |
-| 4 | Active Recon & Tool Plugins | ⏳ |
+| 3 | Vision Agent | ✅ |
+| 4 | Active Recon & Tool Plugins | 🔜 |
 | 5 | Network Agent | ⏳ |
 | 6 | API Discovery Agent | ⏳ |
 | 7 | JavaScript Analysis | ⏳ |
@@ -51,13 +51,21 @@ script inventory, same-origin DOM links), and screenshot evidence — opt-in and
 off by default, degrading to a clean no-op when disabled or when Playwright is
 absent. Form interaction and authentication flows build on this in Phase 8.
 
-## Phase 3 — Vision Agent 🔜
+## Phase 3 — Vision Agent ✅
 
-OpenCV + EasyOCR for screen understanding: read UI text, detect elements, and
-click by sight when the DOM is unreliable. Establishes the perception layer used
-by self-healing (DOM → Vision → Human escalation).
+OCR + visual intelligence over the Browser agent's screenshots, wired behind the
+existing `Agent` Protocol. Delivered a provider-independent OCR seam (EasyOCR /
+RapidOCR / PaddleOCR + null fallback), a dependency-free heuristic element
+detector and page classifier (login / admin / dashboard / Swagger / GraphQL /
+CMS / error / payment / API-docs), on-screen text and entity extraction (emails,
+phones, URLs, internal hosts, secrets), QR-code detection, new visual asset types
+(`SCREENSHOT` / `VISUAL_ELEMENT` / `TEXT_REGION` / `QR_CODE`), screenshot-backed
+findings, and a "Visual Intelligence" report section — opt-in and off by default,
+degrading to a clean no-op without the `vision` extra. Click-by-sight and the
+DOM → Vision → Human self-healing chain build on this perception layer in
+Phase 15.
 
-## Phase 4 — Active Recon & Tool Plugins ⏳
+## Phase 4 — Active Recon & Tool Plugins 🔜
 
 External tool integrations as first-class plugins (httpx, subfinder, naabu,
 katana, gau, amass, dirsearch, ffuf, nuclei, nmap). Adds the active-recon

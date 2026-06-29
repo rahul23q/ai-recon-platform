@@ -35,6 +35,9 @@ class AnalysisAgent(BaseAgent):
         findings += self._subdomain_surface()
         findings += self._insecure_cookies()
         findings += self._browser_capture()
+        findings += self._exposed_secrets_in_text()
+        findings += self._sensitive_pages()
+        findings += self._visual_capture()
 
         findings.sort(key=lambda f: f.severity.rank, reverse=True)
 
@@ -246,6 +249,199 @@ class AnalysisAgent(BaseAgent):
             )
         ]
 
+    # -- vision rules (Phase 3) --------------------------------------------
+    def _exposed_secrets_in_text(self) -> list[Finding]:
+        """Secrets and sensitive information OCR'd from screenshots."""
+        findings: list[Finding] = []
+
+        secrets = [
+            a
+            for a in self.graph.assets(AssetType.SECRET)
+            if a.attributes.get("from") == "ocr"
+        ]
+        if secrets:
+            findings.append(
+                Finding(
+                    title="Secrets visible in screenshots",
+                    description=(
+                        f"{len(secrets)} high-signal secret(s) (API keys, tokens, or "
+                        "private keys) were recognized by OCR in captured screenshots."
+                    ),
+                    severity=Severity.HIGH,
+                    category="information-disclosure",
+                    asset_keys=[s.key for s in secrets],
+                    evidence=[
+                        Evidence(
+                            label=str(s.attributes.get("kind", "secret")),
+                            detail=_mask(s.value),
+                        )
+                        for s in secrets[:20]
+                    ],
+                    recommendation=(
+                        "Rotate the exposed credentials immediately and remove them "
+                        "from any publicly rendered page."
+                    ),
+                    references={"cwe": "CWE-200", "owasp": "A02:2021-Cryptographic Failures"},
+                    confidence=0.8,
+                )
+            )
+
+        emails = [
+            a for a in self.graph.assets(AssetType.EMAIL) if a.attributes.get("from") == "ocr"
+        ]
+        phones = [
+            a
+            for a in self.graph.assets(AssetType.TEXT_REGION)
+            if a.attributes.get("kind") == "phone"
+        ]
+        internal = [
+            a
+            for a in self.graph.assets(AssetType.ENDPOINT)
+            if a.attributes.get("internal")
+        ]
+        if emails or phones or internal:
+            ev: list[Evidence] = []
+            ev += [Evidence(label="email", detail=e.value) for e in emails[:15]]
+            ev += [
+                Evidence(label="phone", detail=str(p.attributes.get("text")))
+                for p in phones[:15]
+            ]
+            ev += [Evidence(label="internal", detail=i.value) for i in internal[:15]]
+            findings.append(
+                Finding(
+                    title="Sensitive information visible on screen",
+                    description=(
+                        "Personally identifiable information or internal references "
+                        f"were observed visually: {len(emails)} email(s), "
+                        f"{len(phones)} phone number(s), {len(internal)} internal URL(s)."
+                    ),
+                    severity=Severity.LOW,
+                    category="information-disclosure",
+                    asset_keys=[a.key for a in (emails + phones + internal)],
+                    evidence=ev,
+                    recommendation=(
+                        "Avoid exposing PII and internal hostnames in public UI; "
+                        "mask or remove where not required."
+                    ),
+                    references={"cwe": "CWE-200"},
+                    confidence=0.7,
+                )
+            )
+        return findings
+
+    def _sensitive_pages(self) -> list[Finding]:
+        """Login / admin / payment pages identified visually, plus missing-MFA."""
+        screenshots = self.graph.assets(AssetType.SCREENSHOT)
+        elements = self.graph.assets(AssetType.VISUAL_ELEMENT)
+        if not screenshots and not elements:
+            return []
+
+        element_types = {str(e.attributes.get("element_type")) for e in elements}
+        page_types = {str(s.attributes.get("page_type")) for s in screenshots}
+        has_login = "login_portal" in page_types or "login_form" in element_types
+        has_admin = "admin_panel" in page_types
+        has_payment = "payment_page" in page_types
+        has_mfa = "mfa" in element_types
+
+        findings: list[Finding] = []
+        if has_login or has_admin or has_payment:
+            kinds = []
+            if has_login:
+                kinds.append("login portal")
+            if has_admin:
+                kinds.append("admin panel")
+            if has_payment:
+                kinds.append("payment page")
+            findings.append(
+                Finding(
+                    title="Sensitive page(s) identified visually",
+                    description=(
+                        "Visual analysis identified sensitive interface(s): "
+                        + ", ".join(kinds)
+                        + ". These warrant access-control and authentication review."
+                    ),
+                    severity=Severity.MEDIUM if has_admin else Severity.LOW,
+                    category="attack-surface",
+                    asset_keys=[s.key for s in screenshots],
+                    evidence=[
+                        Evidence(
+                            label=str(s.attributes.get("page_type")),
+                            detail=str(s.value),
+                            data={"screenshot": s.value},
+                        )
+                        for s in screenshots[:10]
+                        if s.attributes.get("page_type") not in ("unknown", None)
+                    ],
+                    recommendation=(
+                        "Confirm strong authentication and authorization on these pages."
+                    ),
+                    references={"owasp": "A01:2021-Broken Access Control"},
+                    confidence=0.75,
+                )
+            )
+
+        if has_login and not has_mfa:
+            findings.append(
+                Finding(
+                    title="Login page without visible MFA",
+                    description=(
+                        "A login interface was detected but no multi-factor / one-time "
+                        "code prompt was visible, suggesting single-factor authentication."
+                    ),
+                    severity=Severity.MEDIUM,
+                    category="authentication",
+                    asset_keys=[
+                        s.key
+                        for s in screenshots
+                        if s.attributes.get("page_type") == "login_portal"
+                    ],
+                    evidence=[Evidence(label="signal", detail="no MFA element detected")],
+                    recommendation="Enforce multi-factor authentication on user and admin logins.",
+                    references={"owasp": "A07:2021-Identification and Authentication Failures"},
+                    confidence=0.6,
+                )
+            )
+        return findings
+
+    def _visual_capture(self) -> list[Finding]:
+        """Informational summary of vision-analyzed screenshots."""
+        screenshots = self.graph.assets(AssetType.SCREENSHOT)
+        if not screenshots:
+            return []
+        elements = self.graph.assets(AssetType.VISUAL_ELEMENT)
+        evidence: list[Evidence] = []
+        for s in screenshots[:20]:
+            evidence.append(
+                Evidence(
+                    label=str(s.value),
+                    detail=(
+                        f"page={s.attributes.get('page_type', 'unknown')}, "
+                        f"elements={s.attributes.get('elements', 0)}, "
+                        f"ocr={s.attributes.get('ocr_provider', 'null')}"
+                    ),
+                    data={
+                        "screenshot": s.value,
+                        "annotated": s.attributes.get("annotated", ""),
+                    },
+                )
+            )
+        return [
+            Finding(
+                title=f"Visual analysis ({len(screenshots)} screenshot(s), "
+                f"{len(elements)} element(s))",
+                description=(
+                    "The Vision agent ran OCR and element detection over captured "
+                    "screenshots, classifying pages and extracting on-screen text."
+                ),
+                severity=Severity.INFO,
+                category="recon",
+                asset_keys=[s.key for s in screenshots],
+                evidence=evidence,
+                recommendation="Review screenshots and detected elements for exposed content.",
+                confidence=0.9,
+            )
+        ]
+
     async def executive_summary(self, findings: list[Finding], target: str) -> str:
         counts: dict[str, int] = {}
         for f in findings:
@@ -265,3 +461,11 @@ class AnalysisAgent(BaseAgent):
             return (await self.llm.complete(_SYSTEM, prompt)) or templated
         except Exception:  # noqa: BLE001
             return templated
+
+
+def _mask(value: str) -> str:
+    """Mask a secret for evidence: keep a short prefix/suffix only."""
+    v = value.strip()
+    if len(v) <= 8:
+        return "•" * len(v)
+    return f"{v[:4]}…{v[-4:]} ({len(v)} chars)"

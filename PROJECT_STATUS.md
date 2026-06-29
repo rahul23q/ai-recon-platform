@@ -6,11 +6,11 @@
 | | |
 |---|---|
 | **Project** | recon-platform — AI-powered Web App Security Reconnaissance |
-| **Current version** | `0.2.0` |
-| **Current phase** | **Phase 2 — Browser Agent ✅ Completed** |
-| **Next milestone** | **Phase 3 — Vision Agent** |
+| **Current version** | `0.3.0` |
+| **Current phase** | **Phase 3 — Vision Agent ✅ Completed** |
+| **Next milestone** | **Phase 4 — Active Recon & Tool Plugins** |
 | **Last updated** | 2026-06-29 |
-| **Quality gates** | ✅ 17/17 tests passing · ✅ ruff clean · ✅ offline default run unchanged |
+| **Quality gates** | ✅ 25/25 tests passing · ✅ ruff clean · ✅ offline default run unchanged |
 
 ---
 
@@ -115,14 +115,50 @@ when Playwright is not installed, so the offline foundation is unchanged.
 
 ---
 
-## ⏭️ Next milestone — Phase 3: Vision Agent
+## ✅ Phase 3 — Vision Agent (Completed)
 
-Introduce a **Vision Agent** (OpenCV + EasyOCR) for screen understanding — read
-UI text, detect elements, and click by sight when the DOM is unreliable —
-establishing the perception layer used by self-healing (DOM → Vision → Human
-escalation). See [ROADMAP.md](ROADMAP.md) for the full phase plan.
+Added an OCR + visual-intelligence **Vision Agent** behind the existing `Agent`
+Protocol and orchestrator, with **zero rewrites** of Phase-1/2 layers. Opt-in and
+off by default; degrades to a clean no-op when disabled or when no vision backend
+is installed. The pipeline is now Planner → Recon → Browser → **Vision** →
+Analysis → Reporting.
 
-**Entry criteria:** Phase 2 green (met). **Do not** restart earlier phases or
+### Implemented features
+
+- **`vision/` infrastructure** mirroring `browser/`: provider-independent OCR
+  (`OCRProvider` + EasyOCR / RapidOCR / PaddleOCR / null + factory), a
+  dependency-free `HeuristicDetector`, page classifier, and text extractors
+  (emails, phones, URLs, internal hosts, JWT/AWS/Google/GitHub/Slack secrets), a
+  `VisionSession` (lazy image stack, OCR → detection → classification → OpenCV QR
+  scan, best-effort bounding-box annotation), and a `VisionModelProvider`
+  interface for future multimodal LLMs (Claude / GPT-4V / Gemini / Qwen-VL).
+- **Vision modules**: `screenshot_ingest`, `ocr_text`, `object_detection`,
+  `qr_codes` → `SCREENSHOT` / `VISUAL_ELEMENT` / `TEXT_REGION` / `QR_CODE` /
+  `EMAIL` / `SECRET` / `ENDPOINT` assets, reusing Browser screenshots (never
+  re-captured).
+- **`VisionAgent`** drives the session, populates the graph, records a trace per
+  module, and emits `vision.*` A2A events for the dashboard.
+- **Orchestration**: an independent `vision` step (sequential + LangGraph node)
+  between browser and analysis — the Planner's 3-task plan is untouched.
+- **Analysis**: additive rules for exposed secrets, on-screen PII / internal
+  URLs, login / admin / payment pages, login-without-MFA, and a visual summary.
+- **Reporting**: a "Visual Intelligence" section + an HTML screenshot gallery.
+- **Surfaces**: `VisionPlugin` in the MCP catalogue (registered when enabled),
+  `recon passive-recon --vision`, `recon vision <target>`, an API `vision` flag,
+  and `RECON_VISION__*` settings.
+- **Quality**: 25 passing tests (17 prior + 8 hermetic vision tests, no model
+  downloads); ruff-clean; default offline run verified unchanged.
+
+---
+
+## ⏭️ Next milestone — Phase 4: Active Recon & Tool Plugins
+
+Integrate external tools as first-class plugins (httpx, subfinder, naabu, katana,
+gau, amass, dirsearch, ffuf, nuclei, nmap) and add the active-recon workflow
+gated by explicit authorization and `NETWORK_ACTIVE` permissions. See
+[ROADMAP.md](ROADMAP.md) for the full phase plan.
+
+**Entry criteria:** Phase 3 green (met). **Do not** restart earlier phases or
 regenerate completed code — extend via the existing seams.
 
 ---
@@ -131,6 +167,9 @@ regenerate completed code — extend via the existing seams.
 
 Add dated entries here as work proceeds. Newest first.
 
+- **2026-06-29** — Phase 3 (Vision Agent) completed and verified (25 tests
+  passing, ruff clean, default offline run unchanged). OCR + visual intelligence
+  over browser screenshots; opt-in and off by default; released as `v0.3.0`.
 - **2026-06-29** — Phase 2 (Browser Agent) completed and verified (17 tests
   passing, ruff clean, default offline run unchanged). Browser is opt-in and
   off by default; released as `v0.2.0`.

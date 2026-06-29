@@ -74,6 +74,23 @@ def build_container(settings: Settings | None = None) -> Container:
 
         manager.register(BrowserPlugin(build_browser_modules(), _browser_ctx_factory))
 
+    # Vision modules likewise register only when vision is enabled, keeping the
+    # heavy OCR/vision extra unimported on default runs.
+    if settings.vision.enabled:
+        from recon_platform.plugins.vision import VisionPlugin
+        from recon_platform.vision.base import VisionContext
+        from recon_platform.vision.modules import build_vision_modules
+        from recon_platform.vision.session import VisionSession
+
+        v_target = settings.authorized_targets[0] if settings.authorized_targets else ""
+
+        def _vision_ctx_factory() -> VisionContext:
+            # Cheap, import-free construction; OCR/vision backends load lazily on
+            # first use inside the session.
+            return VisionContext(v_target, VisionSession(settings), settings)
+
+        manager.register(VisionPlugin(build_vision_modules(), _vision_ctx_factory))
+
     container.register_instance(PluginManager, manager)
 
     return container

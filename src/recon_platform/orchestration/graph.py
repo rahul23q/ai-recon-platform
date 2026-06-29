@@ -22,6 +22,7 @@ from recon_platform.agents import (
     PlannerAgent,
     ReconAgent,
     ReportingAgent,
+    VisionAgent,
 )
 from recon_platform.core.config import Settings
 from recon_platform.core.container import Container
@@ -52,6 +53,9 @@ class ReconOrchestrator:
             self._bus, self._memory, self._llm, self._graph, self._settings
         )
         self._browser = BrowserAgent(
+            self._bus, self._memory, self._llm, self._graph, self._settings
+        )
+        self._vision = VisionAgent(
             self._bus, self._memory, self._llm, self._graph, self._settings
         )
         self._analysis = AnalysisAgent(self._bus, self._memory, self._llm, self._graph)
@@ -113,6 +117,22 @@ class ReconOrchestrator:
         state.assets += assets
         state.relations += relations
 
+    async def _step_vision(self, state: RunState) -> None:
+        """Optional vision-agent step.
+
+        Like the browser step, it runs independently of the Planner's task graph
+        and no-ops cleanly when vision is disabled or no vision backend is
+        installed. It analyzes the screenshots the browser step captured, so it
+        runs after browser and before analysis; assets flow through the shared
+        knowledge graph.
+        """
+        if not self._settings.vision.enabled:
+            return
+        await self._emit("step", name="vision")
+        assets, relations = await self._vision.run_vision(state.engagement)
+        state.assets += assets
+        state.relations += relations
+
     async def _step_analyze(self, state: RunState) -> None:
         await self._emit("step", name="analyze")
         # Extend (not replace): browser-derived findings coexist with recon ones.
@@ -158,6 +178,7 @@ class ReconOrchestrator:
         await self._step_plan(state)
         await self._step_recon(state)
         await self._step_browser(state)
+        await self._step_vision(state)
         await self._step_analyze(state)
         await self._step_report(state)
 
@@ -189,6 +210,10 @@ class ReconOrchestrator:
             await self._step_browser(s["state"])
             return s
 
+        async def vision_node(s: dict) -> dict:
+            await self._step_vision(s["state"])
+            return s
+
         async def analyze_node(s: dict) -> dict:
             await self._step_analyze(s["state"])
             return s
@@ -201,12 +226,14 @@ class ReconOrchestrator:
         builder.add_node("plan", plan_node)
         builder.add_node("recon", recon_node)
         builder.add_node("browser", browser_node)
+        builder.add_node("vision", vision_node)
         builder.add_node("analyze", analyze_node)
         builder.add_node("report", report_node)
         builder.add_edge(START, "plan")
         builder.add_edge("plan", "recon")
         builder.add_edge("recon", "browser")
-        builder.add_edge("browser", "analyze")
+        builder.add_edge("browser", "vision")
+        builder.add_edge("vision", "analyze")
         builder.add_edge("analyze", "report")
         builder.add_edge("report", END)
 

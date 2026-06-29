@@ -11,14 +11,15 @@ generates professional reports.
 
 ---
 
-## Status — Phase 2 (Browser Agent)
+## Status — Phase 3 (Vision Agent)
 
 This repository contains the **Clean-Architecture foundation** plus the working
-end-to-end workflow **Passive Recon → (Browser) → Analysis → Report**, driven by a
-multi-agent pipeline over a structured Agent-to-Agent (A2A) message bus, with
-optional LangGraph orchestration and Anthropic Claude reasoning. Phase 2 adds an
-opt-in **Browser Agent** (Playwright + Chrome DevTools) behind the same `Agent`
-Protocol; it is off by default so the platform still runs fully offline.
+end-to-end workflow **Passive Recon → (Browser) → (Vision) → Analysis → Report**,
+driven by a multi-agent pipeline over a structured Agent-to-Agent (A2A) message
+bus, with optional LangGraph orchestration and Anthropic Claude reasoning. Phases
+2–3 add opt-in **Browser** (Playwright + Chrome DevTools) and **Vision** (OCR +
+visual intelligence) agents behind the same `Agent` Protocol; both are off by
+default so the platform still runs fully offline.
 
 It is designed to grow module-by-module (active recon, browser/vision agents,
 more plugins, the live dashboard) without changing the existing layers.
@@ -69,6 +70,14 @@ Agent     Agent         Agent           Agent         Agent            Graph Age
   — with retry + browser-restart self-healing. Discovered assets flow into the
   same knowledge graph and reporting; insecure-cookie and capture findings are
   added by Analysis.
+- **Vision Agent** (Phase 3, opt-in): an OCR + visual-intelligence agent that
+  reads the Browser agent's screenshots, performs provider-independent OCR
+  (EasyOCR / RapidOCR / PaddleOCR), detects elements (buttons, forms, login,
+  search, navigation, captcha, cookie banners, MFA, errors, popups), classifies
+  pages (login / admin / dashboard / Swagger / GraphQL / CMS / error / payment /
+  API-docs), extracts on-screen text, emails, phones, URLs and secrets, and reads
+  QR codes — emitting screenshot-backed findings and a Visual Intelligence report
+  section.
 
 ---
 
@@ -96,6 +105,36 @@ If Playwright is not installed (or the browser is disabled), the browser step
 **degrades to a clean no-op** and records a skip trace — the passive pipeline is
 unaffected. Screenshots are written under `reports/screenshots/` by default
 (`RECON_BROWSER__SCREENSHOT_DIR`).
+
+---
+
+## Vision Agent (Phase 3)
+
+The Vision Agent is **off by default**. It analyzes the screenshots the Browser
+agent captures (so enabling vision implies the browser), running OCR + element
+detection + page classification:
+
+```bash
+pip install -e ".[browser,vision]"     # Playwright + OCR/vision stack
+playwright install chromium
+
+# Browser + Vision in one go:
+recon vision example.com
+
+# Or add vision to a passive run (implies --browser):
+recon passive-recon example.com --vision
+
+# Enable via the environment / API:
+RECON_VISION__ENABLED=1 recon tools             # lists the vision.* tools
+# API:  POST /runs {"target": "example.com", "vision": true}
+```
+
+The OCR engine is selectable and provider-independent
+(`RECON_VISION__OCR_PROVIDER=easyocr|rapidocr|paddleocr`); an unknown or
+uninstalled engine falls back to a null provider so a run never crashes. When no
+vision backend is installed at all, the vision step **degrades to a clean no-op**
+and records a skip trace. Annotated screenshots (bounding boxes) are written
+under `reports/vision/` (`RECON_VISION__ANNOTATE_DIR`).
 
 ---
 
@@ -137,7 +176,7 @@ pytest
 ## Roadmap (next slices)
 
 1. ✅ Browser Agent (Playwright) with self-healing — **done (Phase 2)**.
-2. Vision Agent (OpenCV/EasyOCR) for screen understanding and click-by-sight.
+2. ✅ Vision Agent (OCR + visual intelligence) — **done (Phase 3)**.
 3. Active recon workflow + external tool plugins (httpx, subfinder, nuclei).
 4. Network/API agents (JWT, GraphQL, WebSocket inspection).
 5. Live dashboard UI, Redis/Postgres persistence, Celery distributed workers.

@@ -42,10 +42,15 @@ def _force_utf8_streams() -> None:
 _force_utf8_streams()
 
 
-def _settings_for(browser: bool) -> Settings:
-    """Build a fresh Settings with the browser agent toggled for this run."""
+def _settings_for(browser: bool, vision: bool = False) -> Settings:
+    """Build a fresh Settings with the browser / vision agents toggled.
+
+    Vision analyzes the Browser agent's screenshots, so enabling vision implies
+    enabling the browser too.
+    """
     settings = Settings()
-    settings.browser.enabled = browser
+    settings.browser.enabled = browser or vision
+    settings.vision.enabled = vision
     return settings
 
 
@@ -59,16 +64,24 @@ console = Console(legacy_windows=False)
 
 
 async def _execute(
-    target: str, report_format: str, out: pathlib.Path | None, browser: bool = False
+    target: str,
+    report_format: str,
+    out: pathlib.Path | None,
+    browser: bool = False,
+    vision: bool = False,
 ) -> int:
-    # An explicit Settings (built only when needed) lets the browser flag flip
-    # the otherwise-default-off browser agent without touching the cached
+    # An explicit Settings (built only when needed) lets the browser / vision
+    # flags flip the otherwise-default-off agents without touching the cached
     # process-wide settings singleton.
-    container = build_container(_settings_for(browser)) if browser else build_container()
+    container = (
+        build_container(_settings_for(browser, vision))
+        if (browser or vision)
+        else build_container()
+    )
     orch = ReconOrchestrator(container)
     engagement = EngagementContext(target=target, workflow=WorkflowType.PASSIVE_RECON)
 
-    label = "Browser recon" if browser else "Passive recon"
+    label = "Vision recon" if vision else "Browser recon" if browser else "Passive recon"
     console.rule(f"[bold]{label} — {target}")
 
     run_task = asyncio.create_task(orch.run(engagement))
@@ -126,9 +139,36 @@ def passive_recon(
         "--browser/--no-browser",
         help="Also run the Playwright browser agent (requires the 'browser' extra).",
     ),
+    vision: bool = typer.Option(
+        False,
+        "--vision/--no-vision",
+        help="Also run the Vision agent over screenshots (implies --browser; "
+        "requires the 'vision' extra).",
+    ),
 ) -> None:
     """Run the passive reconnaissance workflow end-to-end."""
-    code = asyncio.run(_execute(target, report_format, out, browser=browser))
+    code = asyncio.run(_execute(target, report_format, out, browser=browser, vision=vision))
+    raise typer.Exit(code)
+
+
+@app.command("vision")
+def vision(
+    target: str = typer.Argument(..., help="Authorized domain or host to analyze."),
+    report_format: str = typer.Option(
+        "markdown", "--report-format", "-f", help="markdown | html | json"
+    ),
+    out: pathlib.Path | None = typer.Option(
+        None, "--out", "-o", help="Write the report to this file instead of stdout."
+    ),
+) -> None:
+    """Run the workflow with the Browser + Vision agents enabled.
+
+    Install the extras first: ``pip install '.[browser,vision]'`` (and
+    ``playwright install chromium``). Without them, the browser/vision steps
+    degrade to clean no-ops. The Vision agent performs OCR and element detection
+    over the screenshots the Browser agent captures.
+    """
+    code = asyncio.run(_execute(target, report_format, out, browser=True, vision=True))
     raise typer.Exit(code)
 
 
