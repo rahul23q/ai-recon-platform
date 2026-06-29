@@ -11,15 +11,18 @@ generates professional reports.
 
 ---
 
-## Status — Phase 3 (Vision Agent)
+## Status — Phase 3 (Vision Agent) + cross-source verification
 
 This repository contains the **Clean-Architecture foundation** plus the working
-end-to-end workflow **Passive Recon → (Browser) → (Vision) → Analysis → Report**,
-driven by a multi-agent pipeline over a structured Agent-to-Agent (A2A) message
-bus, with optional LangGraph orchestration and Anthropic Claude reasoning. Phases
-2–3 add opt-in **Browser** (Playwright + Chrome DevTools) and **Vision** (OCR +
-visual intelligence) agents behind the same `Agent` Protocol; both are off by
-default so the platform still runs fully offline.
+end-to-end workflow **Passive Recon → (Browser) → (Vision) → Verification →
+Analysis → Report**, driven by a multi-agent pipeline over a structured
+Agent-to-Agent (A2A) message bus, with optional LangGraph orchestration and
+Anthropic Claude reasoning. Phases 2–3 add opt-in **Browser** (Playwright + Chrome
+DevTools) and **Vision** (OCR + visual intelligence) agents behind the same
+`Agent` Protocol; both are off by default so the platform still runs fully
+offline. A **Verification** stage corroborates passive findings against the
+browser so results are graded Verified / Likely / Needs-Verification / False
+Positive instead of over-reported.
 
 It is designed to grow module-by-module (active recon, browser/vision agents,
 more plugins, the live dashboard) without changing the existing layers.
@@ -135,6 +138,32 @@ uninstalled engine falls back to a null provider so a run never crashes. When no
 vision backend is installed at all, the vision step **degrades to a clean no-op**
 and records a skip trace. Annotated screenshots (bounding boxes) are written
 under `reports/vision/` (`RECON_VISION__ANNOTATE_DIR`).
+
+---
+
+## Cross-source verification
+
+HTTP header analysis is **case-insensitive** and runs only on the **final**
+response after redirects (intermediate 301/302 responses are never analyzed), and
+each finding records both header presence and value. A dedicated **Verification**
+stage then corroborates the passive view against the Browser agent's in-browser
+view, which removes a real class of false positives — many servers send headers
+like `Content-Security-Policy` only to browser-like clients, so a passive-only
+fetch can wrongly report them missing.
+
+Every finding carries a **verification status**, a **confidence score**, and its
+**verification sources** (e.g. `passive-http`, `browser`):
+
+| Status | Meaning |
+|---|---|
+| **Verified** | Independent sources agree (e.g. passive HTTP + browser). |
+| **Likely** | Single-source, deterministic, not yet cross-verified. |
+| **Needs Manual Verification** | Sources disagree — confirm on the live target. |
+| **False Positive** | A claim refuted by a more authoritative source (e.g. a header "missing" in passive HTTP but present in the browser). |
+
+Reports group findings into **Verified Findings**, **Likely Findings**, **Needs
+Manual Verification**, and **False Positives**. Enable the Browser agent
+(`--browser` / `--vision`) to upgrade single-source "likely" results to verified.
 
 ---
 

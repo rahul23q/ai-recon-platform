@@ -11,6 +11,7 @@ from recon_platform.domain.schemas import (
     Plan,
     Relation,
     ReportBundle,
+    Verification,
 )
 
 
@@ -23,6 +24,7 @@ class RunState(BaseModel):
     plan: Plan | None = None
     assets: list[Asset] = Field(default_factory=list)
     relations: list[Relation] = Field(default_factory=list)
+    verifications: list[Verification] = Field(default_factory=list)
     findings: list[Finding] = Field(default_factory=list)
     executive_summary: str = ""
     bundle: ReportBundle | None = None

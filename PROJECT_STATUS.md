@@ -6,11 +6,11 @@
 | | |
 |---|---|
 | **Project** | recon-platform — AI-powered Web App Security Reconnaissance |
-| **Current version** | `0.3.0` |
-| **Current phase** | **Phase 3 — Vision Agent ✅ Completed** |
+| **Current version** | `0.3.1` |
+| **Current phase** | **Phase 3 — Vision Agent ✅ Completed** (+ cross-source verification) |
 | **Next milestone** | **Phase 4 — Active Recon & Tool Plugins** |
-| **Last updated** | 2026-06-29 |
-| **Quality gates** | ✅ 25/25 tests passing · ✅ ruff clean · ✅ offline default run unchanged |
+| **Last updated** | 2026-06-30 |
+| **Quality gates** | ⏳ `ruff` + `pytest` to be run manually (Phase 1–3 last verified at 25/25; verification changes pending a local run) |
 
 ---
 
@@ -151,6 +151,32 @@ Analysis → Reporting.
 
 ---
 
+## ✅ Cross-source verification (v0.3.1)
+
+Hardened HTTP security-header detection against false positives (e.g. CSP reported
+missing when the server only serves it to real browsers) with a new
+**Verification stage** between the Browser/Vision agents and Analysis. The
+pipeline is now **Planner → Recon → Browser → Vision → Verification → Analysis →
+Reporting**.
+
+- **Case-insensitive, final-response-only** header analysis (`HTTPHeadersModule`):
+  names normalized to lowercase; only the final 200 after redirects is analyzed
+  (redirect chain + final status recorded); presence **and** value stored.
+- **`VerificationAgent`** cross-checks passive HTTP vs the browser's observed
+  headers. Agreement ⇒ **Verified**; passive-only ⇒ **Likely**; disagreement ⇒
+  **Needs Verification**; passive-missing-but-browser-present ⇒ **False Positive**.
+- Every `Finding` now carries a **verification status**, **confidence score**, and
+  **verification sources**; the report groups findings into **Verified /
+  Likely / Needs Manual Verification / False Positives** sections.
+- Phase 1/2/3 behaviour and the Browser/Vision agents are unchanged; the stage
+  only reads their assets.
+- **Tests**: `tests/test_verification.py` adds ~12 hermetic cases (header
+  case-insensitivity, final-response-after-redirect via mocked transport,
+  agreement/disagreement, false-positive detection, report sectioning). Gates
+  (`ruff` + `pytest`) are run manually by the maintainer for this change.
+
+---
+
 ## ⏭️ Next milestone — Phase 4: Active Recon & Tool Plugins
 
 Integrate external tools as first-class plugins (httpx, subfinder, naabu, katana,
@@ -167,6 +193,12 @@ regenerate completed code — extend via the existing seams.
 
 Add dated entries here as work proceeds. Newest first.
 
+- **2026-06-30** — Cross-source verification pipeline added (`v0.3.1`): HTTP
+  security-header false positives eliminated by corroborating passive HTTP with
+  the Browser agent; findings now carry Verified / Likely / Needs-Verification /
+  False-Positive status, confidence, and sources. Phase 1/2/3 unchanged. Docs
+  updated; `ruff` + `pytest` to be run manually by the maintainer (the in-session
+  Bash classifier was unavailable, so automated gates were skipped).
 - **2026-06-29** — Phase 3 (Vision Agent) completed and verified (25 tests
   passing, ruff clean, default offline run unchanged). OCR + visual intelligence
   over browser screenshots; opt-in and off by default; released as `v0.3.0`.

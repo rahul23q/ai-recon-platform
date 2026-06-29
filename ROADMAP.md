@@ -65,6 +65,14 @@ degrading to a clean no-op without the `vision` extra. Click-by-sight and the
 DOM → Vision → Human self-healing chain build on this perception layer in
 Phase 15.
 
+> **v0.3.1 — cross-source verification.** A Verification stage now sits between
+> the Browser/Vision agents and Analysis (Planner → Recon → Browser → Vision →
+> Verification → Analysis → Reporting). HTTP header analysis is case-insensitive
+> and runs only on the final post-redirect response; findings are graded
+> Verified / Likely / Needs-Verification / False-Positive with confidence and
+> sources, eliminating the security-header false-positive class. A first step
+> toward the broader correlation/verification work in Phase 14.
+
 ## Phase 4 — Active Recon & Tool Plugins 🔜
 
 External tool integrations as first-class plugins (httpx, subfinder, naabu,

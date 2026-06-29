@@ -19,6 +19,7 @@ from recon_platform.domain.enums import (
     RelationType,
     Severity,
     TaskStatus,
+    VerificationStatus,
     WorkflowType,
 )
 
@@ -116,6 +117,23 @@ class Evidence(_Base):
     data: dict[str, Any] = Field(default_factory=dict)
 
 
+class Verification(_Base):
+    """A cross-source verdict about a single claim (e.g. one security header).
+
+    Produced by the Verification stage before analysis. ``sources`` lists the
+    independent observers that contributed (e.g. ``passive-http``, ``browser``,
+    ``chrome-devtools``); ``status`` records whether they agreed.
+    """
+
+    subject: str  # stable key, e.g. "security-header:content-security-policy"
+    claim: str  # the asserted state, e.g. "present" | "missing"
+    status: VerificationStatus = VerificationStatus.NEEDS_VERIFICATION
+    confidence: float = 0.5
+    sources: list[str] = Field(default_factory=list)
+    detail: str = ""
+    created_at: datetime = Field(default_factory=_utcnow)
+
+
 class Finding(_Base):
     """An analyzed observation worth reporting, with severity + evidence."""
 
@@ -130,6 +148,11 @@ class Finding(_Base):
     # Mapping hooks for later enrichment (OWASP / CWE / MITRE / CVSS).
     references: dict[str, Any] = Field(default_factory=dict)
     confidence: float = 0.8
+    # Cross-source verification metadata (Phase 3.1). Defaults to a single-source
+    # "likely" verdict so every finding carries a status without forcing callers
+    # to set one; cross-verified findings upgrade/downgrade it explicitly.
+    verification_status: VerificationStatus = VerificationStatus.LIKELY
+    verification_sources: list[str] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=_utcnow)
 
 

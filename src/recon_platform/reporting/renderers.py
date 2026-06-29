@@ -10,10 +10,18 @@ from __future__ import annotations
 import html
 
 from recon_platform.core.exceptions import ConfigurationError
-from recon_platform.domain.enums import AssetType
-from recon_platform.domain.schemas import ReportBundle
+from recon_platform.domain.enums import AssetType, VerificationStatus
+from recon_platform.domain.schemas import Finding, ReportBundle
 
 _SECTION_ORDER = ["critical", "high", "medium", "low", "info"]
+
+# Verification buckets, in report order, with their human section titles.
+_VERIFICATION_SECTIONS: list[tuple[VerificationStatus, str]] = [
+    (VerificationStatus.VERIFIED, "Verified Findings"),
+    (VerificationStatus.LIKELY, "Likely Findings"),
+    (VerificationStatus.NEEDS_VERIFICATION, "Needs Manual Verification"),
+    (VerificationStatus.FALSE_POSITIVE, "False Positives"),
+]
 
 
 class JSONRenderer:
@@ -60,30 +68,27 @@ class MarkdownRenderer:
                 lines.append(f"- **{t.title}** → `{t.assigned_role}` ({t.status})")
             lines.append("")
 
-        # Findings
+        # Findings — grouped by cross-source verification status.
         lines.append("## Findings")
         lines.append("")
         if not bundle.findings:
             lines.append("_No findings._")
             lines.append("")
+        buckets: dict[str, list[Finding]] = {}
         for f in bundle.findings:
-            sev = f.severity.value if hasattr(f.severity, "value") else str(f.severity)
-            lines.append(f"### [{sev.upper()}] {f.title}")
+            status = f.verification_status
+            key = status.value if hasattr(status, "value") else str(status)
+            buckets.setdefault(key, []).append(f)
+        for status, title in _VERIFICATION_SECTIONS:
+            group = buckets.get(status.value, [])
+            lines.append(f"### {title} ({len(group)})")
             lines.append("")
-            lines.append(f.description)
-            lines.append("")
-            if f.recommendation:
-                lines.append(f"**Recommendation:** {f.recommendation}")
+            if not group:
+                lines.append("_None._")
                 lines.append("")
-            if f.references:
-                refs = ", ".join(f"{k}: {v}" for k, v in f.references.items())
-                lines.append(f"**References:** {refs}")
-                lines.append("")
-            if f.evidence:
-                lines.append("**Evidence:**")
-                for e in f.evidence[:25]:
-                    lines.append(f"- {e.label}: {e.detail}")
-                lines.append("")
+                continue
+            for f in sorted(group, key=lambda x: x.severity.rank, reverse=True):
+                self._render_finding(lines, f)
 
         # Discovered assets
         lines.append("## Discovered Assets")
@@ -140,6 +145,35 @@ class MarkdownRenderer:
             )
         lines.append("")
         return "\n".join(lines)
+
+    @staticmethod
+    def _render_finding(lines: list[str], f: Finding) -> None:
+        """Render one finding, including its verification status / confidence."""
+        sev = f.severity.value if hasattr(f.severity, "value") else str(f.severity)
+        status = f.verification_status
+        status_str = status.value if hasattr(status, "value") else str(status)
+        lines.append(f"#### [{sev.upper()}] {f.title}")
+        lines.append("")
+        sources = ", ".join(f.verification_sources) or "—"
+        lines.append(
+            f"*Verification: **{status_str.replace('_', ' ')}** · "
+            f"confidence {f.confidence:.2f} · sources: {sources}*"
+        )
+        lines.append("")
+        lines.append(f.description)
+        lines.append("")
+        if f.recommendation:
+            lines.append(f"**Recommendation:** {f.recommendation}")
+            lines.append("")
+        if f.references:
+            refs = ", ".join(f"{k}: {v}" for k, v in f.references.items())
+            lines.append(f"**References:** {refs}")
+            lines.append("")
+        if f.evidence:
+            lines.append("**Evidence:**")
+            for e in f.evidence[:25]:
+                lines.append(f"- {e.label}: {e.detail}")
+            lines.append("")
 
 
 class HTMLRenderer:

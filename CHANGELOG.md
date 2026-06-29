@@ -4,6 +4,51 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.1] — 2026-06-30
+
+### Cross-source verification pipeline (HTTP security-header false positives)
+
+Eliminates a class of false positives in HTTP security-header detection (e.g.
+**Content-Security-Policy** reported missing when the server only sends it to
+real browsers) by corroborating passive observations against the Browser agent
+before they become findings. The pipeline is now Planner → Recon → Browser →
+Vision → **Verification** → Analysis → Reporting. No existing layer was rewritten.
+
+#### Added
+
+- **Verification stage** (`verification/headers.py` + `agents/verification.py`):
+  a new `VerificationAgent` that runs before analysis and cross-checks required
+  security headers across sources. Pure, import-light comparison logic with a
+  clear verdict matrix.
+- **`VerificationStatus`** enum (`verified` / `likely` / `needs_verification` /
+  `false_positive`) and a `Verification` domain model; `Finding` now carries
+  `verification_status` and `verification_sources` (every finding declares its
+  status, confidence score, and sources — e.g. `passive-http`, `browser`).
+- **Report sections**: findings are grouped into **Verified Findings**, **Likely
+  Findings**, **Needs Manual Verification**, and **False Positives**, each finding
+  showing its verification status, confidence, and sources.
+- **Tests** (`tests/test_verification.py`): header case-insensitivity, final-
+  response-after-redirect analysis, passive/browser agreement and disagreement,
+  and false-positive detection.
+
+#### Changed
+
+- **HTTP header analysis** (`recon.modules.HTTPHeadersModule`): header names are
+  normalized to lowercase (RFC 9110 case-insensitivity), analysis is performed
+  only on the **final** response after following redirects (the redirect chain
+  and final status are recorded), and both presence and value are stored.
+- **Analysis** (`AnalysisAgent.analyze`): consumes verification verdicts and
+  splits security-header results into verified / likely / needs-verification /
+  false-positive findings instead of a single unconditional "missing" finding;
+  all findings are stamped with their originating sources.
+
+#### Unchanged
+
+- Phase 1 / 2 / 3 functionality is intact; all prior tests pass. Browser and
+  Vision agents are unmodified (the verification stage only *reads* their assets).
+
+[0.3.1]: https://github.com/OWNER/recon-platform/releases/tag/v0.3.1
+
 ## [0.3.0] — 2026-06-29
 
 ### Phase 3 — Vision Agent (Completed)

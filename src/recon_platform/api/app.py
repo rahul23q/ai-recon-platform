@@ -32,7 +32,7 @@ def create_app(container: Container | None = None):  # noqa: C901 - factory
     from pydantic import BaseModel
 
     container = container or build_container()
-    app = FastAPI(title="recon-platform", version="0.3.0")
+    app = FastAPI(title="recon-platform", version="0.3.1")
 
     # In-memory run registry (swap for Redis/Postgres in the infra config).
     runs: dict[str, dict[str, Any]] = {}

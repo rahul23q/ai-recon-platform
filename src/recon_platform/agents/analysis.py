@@ -8,16 +8,25 @@ available it adds an executive narrative; without it a templated summary is used
 from __future__ import annotations
 
 from recon_platform.agents.base import BaseAgent
-from recon_platform.domain.enums import AgentRole, AssetType, Severity
+from recon_platform.domain.enums import AgentRole, AssetType, Severity, VerificationStatus
 from recon_platform.domain.interfaces import KnowledgeGraph, LLMProvider, Memory, MessageBus
-from recon_platform.domain.schemas import Evidence, Finding, ReasoningTrace
-from recon_platform.recon.modules import SECURITY_HEADERS
+from recon_platform.domain.schemas import Evidence, Finding, ReasoningTrace, Verification
+from recon_platform.verification.headers import (
+    SOURCE_BROWSER,
+    SOURCE_PASSIVE,
+    collect_header_maps,
+    compute_header_verifications,
+)
 
 _SYSTEM = (
     "You are a senior security analyst summarizing PASSIVE recon results for an "
     "authorized engagement. Be precise and non-alarmist. Output an executive "
     "summary paragraph only."
 )
+
+#: Observer tag for vision-derived findings (passive/browser tags live in
+#: ``verification.headers``).
+SOURCE_VISION = "vision"
 
 
 class AnalysisAgent(BaseAgent):
@@ -27,17 +36,27 @@ class AnalysisAgent(BaseAgent):
         super().__init__(AgentRole.ANALYSIS, bus, memory, llm)
         self.graph = graph
 
-    async def analyze(self) -> list[Finding]:
+    async def analyze(self, verifications: list[Verification] | None = None) -> list[Finding]:
+        # When the Verification stage didn't run (e.g. AnalysisAgent used
+        # directly), derive single-source verdicts from the graph so the
+        # security-header rule still behaves correctly.
+        if verifications is None:
+            passive, browser, observed = collect_header_maps(self.graph)
+            verifications = compute_header_verifications(passive, browser, observed)
+
         findings: list[Finding] = []
-        findings += self._missing_security_headers()
-        findings += self._tech_disclosure()
-        findings += self._exposed_paths()
-        findings += self._subdomain_surface()
-        findings += self._insecure_cookies()
-        findings += self._browser_capture()
-        findings += self._exposed_secrets_in_text()
-        findings += self._sensitive_pages()
-        findings += self._visual_capture()
+        # The security-header rule stamps its own (cross-source) verdicts; the
+        # other rules are stamped with their originating observer so every finding
+        # declares verification sources.
+        findings += self._missing_security_headers(verifications)
+        findings += _stamp(self._tech_disclosure(), [SOURCE_PASSIVE])
+        findings += _stamp(self._exposed_paths(), [SOURCE_PASSIVE])
+        findings += _stamp(self._subdomain_surface(), [SOURCE_PASSIVE])
+        findings += _stamp(self._insecure_cookies(), [SOURCE_BROWSER])
+        findings += _stamp(self._browser_capture(), [SOURCE_BROWSER])
+        findings += _stamp(self._exposed_secrets_in_text(), [SOURCE_VISION])
+        findings += _stamp(self._sensitive_pages(), [SOURCE_VISION])
+        findings += _stamp(self._visual_capture(), [SOURCE_VISION])
 
         findings.sort(key=lambda f: f.severity.rank, reverse=True)
 
@@ -61,33 +80,146 @@ class AnalysisAgent(BaseAgent):
         return findings
 
     # -- rules --------------------------------------------------------------
-    def _missing_security_headers(self) -> list[Finding]:
-        headers = self.graph.assets(AssetType.HEADER)
-        if not headers:
+    def _missing_security_headers(self, verifications: list[Verification]) -> list[Finding]:
+        """Security-header findings, bucketed by cross-source verification verdict.
+
+        A header is reported missing only with a verdict attached. The class of
+        false positive where passive HTTP misses a header the browser actually
+        receives is split out as a ``FALSE_POSITIVE`` finding rather than a
+        confirmed gap.
+        """
+        # Only consider header verdicts (subject prefix), keyed by header name.
+        header_verdicts = {
+            v.subject.split(":", 1)[1]: v
+            for v in verifications
+            if v.subject.startswith("security-header:")
+        }
+        if not header_verdicts:
             return []
-        present = {str(h.attributes.get("name", "")).lower() for h in headers}
-        missing = [h for h in SECURITY_HEADERS if h not in present]
-        if not missing:
+
+        # No HTTP response was observed at all (no HEADER assets) ⇒ we have no
+        # basis to claim any header missing. Stay silent rather than fabricate.
+        header_assets = self.graph.assets(AssetType.HEADER)
+        if not header_assets:
             return []
-        return [
-            Finding(
-                title="Missing recommended security headers",
-                description=(
-                    "The application response is missing one or more recommended "
-                    "HTTP security headers: " + ", ".join(missing) + "."
-                ),
-                severity=Severity.MEDIUM,
-                category="hardening",
-                asset_keys=[h.key for h in headers],
-                evidence=[Evidence(label="missing", detail=", ".join(missing))],
-                recommendation=(
-                    "Add the missing headers (HSTS, CSP, X-Frame-Options, "
-                    "X-Content-Type-Options, Referrer-Policy, Permissions-Policy)."
-                ),
-                references={"owasp": "A05:2021-Security Misconfiguration"},
-                confidence=0.9,
-            )
+        asset_keys = [h.key for h in header_assets]
+        _ref = {"owasp": "A05:2021-Security Misconfiguration"}
+        _rec = (
+            "Add the missing headers (HSTS, CSP, X-Frame-Options, "
+            "X-Content-Type-Options, Referrer-Policy, Permissions-Policy)."
+        )
+
+        # Group "missing" claims by verification status.
+        verified_missing = [
+            h for h, v in header_verdicts.items()
+            if v.claim == "missing" and v.status == VerificationStatus.VERIFIED
         ]
+        likely_missing = [
+            h for h, v in header_verdicts.items()
+            if v.claim == "missing" and v.status == VerificationStatus.LIKELY
+        ]
+        false_positives = [
+            h for h, v in header_verdicts.items()
+            if v.claim == "missing" and v.status == VerificationStatus.FALSE_POSITIVE
+        ]
+        needs_verification = [
+            h for h, v in header_verdicts.items()
+            if v.status == VerificationStatus.NEEDS_VERIFICATION
+        ]
+
+        findings: list[Finding] = []
+        if verified_missing:
+            findings.append(
+                Finding(
+                    title="Missing recommended security headers (verified)",
+                    description=(
+                        "These recommended HTTP security headers were absent from "
+                        "both the passive HTTP and the browser responses: "
+                        + ", ".join(verified_missing) + "."
+                    ),
+                    severity=Severity.MEDIUM,
+                    category="hardening",
+                    asset_keys=asset_keys,
+                    evidence=[Evidence(label="missing", detail=", ".join(verified_missing))],
+                    recommendation=_rec,
+                    references=_ref,
+                    confidence=0.95,
+                    verification_status=VerificationStatus.VERIFIED,
+                    verification_sources=[SOURCE_PASSIVE, SOURCE_BROWSER],
+                )
+            )
+        if likely_missing:
+            findings.append(
+                Finding(
+                    title="Missing recommended security headers",
+                    description=(
+                        "The passive HTTP response is missing one or more recommended "
+                        "HTTP security headers: " + ", ".join(likely_missing) + ". "
+                        "Enable the Browser agent to cross-verify (some servers send "
+                        "these only to real browsers)."
+                    ),
+                    severity=Severity.MEDIUM,
+                    category="hardening",
+                    asset_keys=asset_keys,
+                    evidence=[Evidence(label="missing", detail=", ".join(likely_missing))],
+                    recommendation=_rec,
+                    references=_ref,
+                    confidence=0.8,
+                    verification_status=VerificationStatus.LIKELY,
+                    verification_sources=[SOURCE_PASSIVE],
+                )
+            )
+        if needs_verification:
+            findings.append(
+                Finding(
+                    title="Security headers needing manual verification",
+                    description=(
+                        "Passive HTTP and the browser disagreed about these headers; "
+                        "manual confirmation is recommended: "
+                        + ", ".join(sorted(needs_verification)) + "."
+                    ),
+                    severity=Severity.LOW,
+                    category="hardening",
+                    asset_keys=asset_keys,
+                    evidence=[
+                        Evidence(label=h, detail=header_verdicts[h].detail)
+                        for h in sorted(needs_verification)
+                    ],
+                    recommendation="Manually confirm the header on the live target.",
+                    references=_ref,
+                    confidence=0.5,
+                    verification_status=VerificationStatus.NEEDS_VERIFICATION,
+                    verification_sources=[SOURCE_PASSIVE, SOURCE_BROWSER],
+                )
+            )
+        if false_positives:
+            findings.append(
+                Finding(
+                    title="Security header false positives (present in browser)",
+                    description=(
+                        "These headers were absent from the passive HTTP response but "
+                        "observed in the browser response, so a 'missing header' "
+                        "finding would be a false positive: "
+                        + ", ".join(false_positives) + "."
+                    ),
+                    severity=Severity.INFO,
+                    category="hardening",
+                    asset_keys=asset_keys,
+                    evidence=[
+                        Evidence(label=h, detail=header_verdicts[h].detail)
+                        for h in false_positives
+                    ],
+                    recommendation=(
+                        "No action required for these headers; they are present for "
+                        "browser clients."
+                    ),
+                    references=_ref,
+                    confidence=0.2,
+                    verification_status=VerificationStatus.FALSE_POSITIVE,
+                    verification_sources=[SOURCE_PASSIVE, SOURCE_BROWSER],
+                )
+            )
+        return findings
 
     def _tech_disclosure(self) -> list[Finding]:
         techs = self.graph.assets(AssetType.TECHNOLOGY)
@@ -469,3 +601,11 @@ def _mask(value: str) -> str:
     if len(v) <= 8:
         return "•" * len(v)
     return f"{v[:4]}…{v[-4:]} ({len(v)} chars)"
+
+
+def _stamp(findings: list[Finding], sources: list[str]) -> list[Finding]:
+    """Record the originating observer(s) on findings that didn't set their own."""
+    for f in findings:
+        if not f.verification_sources:
+            f.verification_sources = list(sources)
+    return findings

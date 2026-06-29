@@ -22,6 +22,7 @@ from recon_platform.agents import (
     PlannerAgent,
     ReconAgent,
     ReportingAgent,
+    VerificationAgent,
     VisionAgent,
 )
 from recon_platform.core.config import Settings
@@ -56,6 +57,9 @@ class ReconOrchestrator:
             self._bus, self._memory, self._llm, self._graph, self._settings
         )
         self._vision = VisionAgent(
+            self._bus, self._memory, self._llm, self._graph, self._settings
+        )
+        self._verification = VerificationAgent(
             self._bus, self._memory, self._llm, self._graph, self._settings
         )
         self._analysis = AnalysisAgent(self._bus, self._memory, self._llm, self._graph)
@@ -133,10 +137,21 @@ class ReconOrchestrator:
         state.assets += assets
         state.relations += relations
 
+    async def _step_verify(self, state: RunState) -> None:
+        """Cross-source verification stage (always runs, before analysis).
+
+        Corroborates passive observations against the Browser agent's in-browser
+        view so findings can be stamped Verified / Likely / Needs-Verification /
+        False-Positive. Lightweight and dependency-free, so it runs every time —
+        with no browser data it produces single-source 'likely' verdicts.
+        """
+        await self._emit("step", name="verification")
+        state.verifications = await self._verification.verify(state.engagement)
+
     async def _step_analyze(self, state: RunState) -> None:
         await self._emit("step", name="analyze")
         # Extend (not replace): browser-derived findings coexist with recon ones.
-        state.findings += await self._analysis.analyze()
+        state.findings += await self._analysis.analyze(state.verifications)
         state.executive_summary = await self._analysis.executive_summary(
             state.findings, state.engagement.target
         )
@@ -179,6 +194,7 @@ class ReconOrchestrator:
         await self._step_recon(state)
         await self._step_browser(state)
         await self._step_vision(state)
+        await self._step_verify(state)
         await self._step_analyze(state)
         await self._step_report(state)
 
@@ -214,6 +230,10 @@ class ReconOrchestrator:
             await self._step_vision(s["state"])
             return s
 
+        async def verify_node(s: dict) -> dict:
+            await self._step_verify(s["state"])
+            return s
+
         async def analyze_node(s: dict) -> dict:
             await self._step_analyze(s["state"])
             return s
@@ -227,13 +247,15 @@ class ReconOrchestrator:
         builder.add_node("recon", recon_node)
         builder.add_node("browser", browser_node)
         builder.add_node("vision", vision_node)
+        builder.add_node("verification", verify_node)
         builder.add_node("analyze", analyze_node)
         builder.add_node("report", report_node)
         builder.add_edge(START, "plan")
         builder.add_edge("plan", "recon")
         builder.add_edge("recon", "browser")
         builder.add_edge("browser", "vision")
-        builder.add_edge("vision", "analyze")
+        builder.add_edge("vision", "verification")
+        builder.add_edge("verification", "analyze")
         builder.add_edge("analyze", "report")
         builder.add_edge("report", END)
 

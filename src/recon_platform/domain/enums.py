@@ -21,6 +21,7 @@ class AgentRole(StrEnum):
     KNOWLEDGE_GRAPH = "knowledge_graph"
     BROWSER = "browser"
     VISION = "vision"
+    VERIFICATION = "verification"
     NETWORK = "network"
     API = "api"
     HUMAN = "human"
@@ -52,6 +53,31 @@ class Severity(StrEnum):
     @property
     def rank(self) -> int:
         return {"info": 0, "low": 1, "medium": 2, "high": 3, "critical": 4}[self.value]
+
+
+class VerificationStatus(StrEnum):
+    """Cross-source confidence in a finding (Phase 3.1 verification pipeline).
+
+    * ``VERIFIED`` — corroborated by ≥2 independent sources that agree.
+    * ``LIKELY`` — single-source, deterministic, but not cross-verified.
+    * ``NEEDS_VERIFICATION`` — sources disagree (or none could confirm).
+    * ``FALSE_POSITIVE`` — a claim contradicted by a more authoritative source
+      (e.g. a header reported "missing" by passive HTTP but observed in-browser).
+    """
+
+    VERIFIED = "verified"
+    LIKELY = "likely"
+    NEEDS_VERIFICATION = "needs_verification"
+    FALSE_POSITIVE = "false_positive"
+
+    @property
+    def rank(self) -> int:
+        return {
+            "verified": 3,
+            "likely": 2,
+            "needs_verification": 1,
+            "false_positive": 0,
+        }[self.value]
 
 
 class AssetType(StrEnum):

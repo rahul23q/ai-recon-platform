@@ -89,34 +89,57 @@ class HTTPHeadersModule(ReconModule):
         result = ReconResult(task_id="", module=self.name)
         url = f"https://{ctx.target}/"
         try:
+            # follow_redirects=True ⇒ ``resp`` is the FINAL response after the
+            # redirect chain; header analysis must only consider this response,
+            # never an intermediate 301/302 (which rarely carries security
+            # headers and would otherwise produce false "missing" results).
             resp = await ctx.http.get(url, follow_redirects=True)
         except Exception as exc:  # noqa: BLE001
             result.errors.append(f"HTTP request to {url} failed: {exc}")
             return result
 
+        redirect_chain = [str(r.url) for r in resp.history]
         url_asset = Asset(
             type=AssetType.URL,
             value=str(resp.url),
             source=self.name,
-            attributes={"status_code": resp.status_code},
+            attributes={
+                "status_code": resp.status_code,
+                "final": True,
+                "redirect_chain": redirect_chain,
+            },
         )
         result.assets.append(url_asset)
 
+        # Record each header of the FINAL response. Header names are
+        # case-insensitive (RFC 9110): normalize to lowercase so downstream
+        # comparison can never miss a present header due to casing. We store both
+        # presence (the asset exists) and the actual value.
         for header, value in resp.headers.items():
+            name = header.strip().lower()
             result.assets.append(
                 Asset(
                     type=AssetType.HEADER,
-                    value=f"{header}: {value}",
+                    value=f"{name}: {value}",
                     source=self.name,
-                    attributes={"name": header.lower(), "value": value},
+                    attributes={
+                        "name": name,
+                        "value": value,
+                        "present": True,
+                        "status_code": resp.status_code,
+                        "final": True,
+                    },
                 )
             )
 
-        present = {h.lower() for h in resp.headers}
+        present = {h.strip().lower() for h in resp.headers}
         missing = [h for h in SECURITY_HEADERS if h not in present]
         if missing:
-            result.notes.append("Missing security headers: " + ", ".join(missing))
-        result.notes.append(f"HTTP {resp.status_code} from {resp.url}")
+            result.notes.append(
+                "Security headers absent from passive HTTP response (pending "
+                "cross-source verification): " + ", ".join(missing)
+            )
+        result.notes.append(f"Final HTTP {resp.status_code} from {resp.url}")
 
         # Stash the body for the fingerprint module via the context cache.
         ctx.__dict__.setdefault("_cache", {})["home_html"] = resp.text[:200_000]
