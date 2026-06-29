@@ -33,6 +33,8 @@ class AnalysisAgent(BaseAgent):
         findings += self._tech_disclosure()
         findings += self._exposed_paths()
         findings += self._subdomain_surface()
+        findings += self._insecure_cookies()
+        findings += self._browser_capture()
 
         findings.sort(key=lambda f: f.severity.rank, reverse=True)
 
@@ -159,6 +161,88 @@ class AnalysisAgent(BaseAgent):
                 evidence=[Evidence(label="subdomain", detail=s.value) for s in subs[:30]],
                 recommendation="Inventory subdomains; decommission unused hosts.",
                 confidence=0.85,
+            )
+        ]
+
+    def _insecure_cookies(self) -> list[Finding]:
+        """COOKIE assets missing Secure / HttpOnly / SameSite (browser-observed)."""
+        cookies = self.graph.assets(AssetType.COOKIE)
+        if not cookies:
+            return []
+        weak = []
+        for c in cookies:
+            missing = [
+                flag
+                for flag, attr in (
+                    ("Secure", "secure"),
+                    ("HttpOnly", "http_only"),
+                )
+                if not c.attributes.get(attr, False)
+            ]
+            same_site = str(c.attributes.get("same_site", "")).lower()
+            if same_site in ("", "none"):
+                missing.append("SameSite")
+            if missing:
+                weak.append((c, missing))
+        if not weak:
+            return []
+        return [
+            Finding(
+                title="Cookies missing security attributes",
+                description=(
+                    f"{len(weak)} cookie(s) observed in the browser are missing one "
+                    "or more protective attributes (Secure, HttpOnly, SameSite), "
+                    "increasing exposure to theft and cross-site attacks."
+                ),
+                severity=Severity.MEDIUM,
+                category="hardening",
+                asset_keys=[c.key for c, _ in weak],
+                evidence=[
+                    Evidence(label=c.value, detail="missing: " + ", ".join(missing))
+                    for c, missing in weak[:20]
+                ],
+                recommendation=(
+                    "Set Secure and HttpOnly on session cookies and an explicit "
+                    "SameSite policy (Lax or Strict)."
+                ),
+                references={"owasp": "A05:2021-Security Misconfiguration", "cwe": "CWE-1004"},
+                confidence=0.85,
+            )
+        ]
+
+    def _browser_capture(self) -> list[Finding]:
+        """Informational finding summarizing browser-navigated pages + screenshots."""
+        pages = [
+            a
+            for a in self.graph.assets(AssetType.URL)
+            if a.attributes.get("via") == "browser"
+        ]
+        if not pages:
+            return []
+        evidence: list[Evidence] = []
+        for p in pages[:20]:
+            detail = str(p.attributes.get("title") or p.value)
+            shot = p.attributes.get("screenshot")
+            evidence.append(
+                Evidence(
+                    label=p.value,
+                    detail=detail,
+                    data={"screenshot": shot} if shot else {},
+                )
+            )
+        return [
+            Finding(
+                title=f"Browser capture ({len(pages)} page(s) navigated)",
+                description=(
+                    f"A real browser navigated {len(pages)} page(s), capturing the "
+                    "rendered DOM, network traffic, cookies, and screenshot evidence."
+                ),
+                severity=Severity.INFO,
+                category="recon",
+                asset_keys=[p.key for p in pages],
+                evidence=evidence,
+                recommendation="Review captured pages and screenshots for exposed content.",
+                confidence=0.9,
             )
         ]
 

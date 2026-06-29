@@ -6,11 +6,11 @@
 | | |
 |---|---|
 | **Project** | recon-platform — AI-powered Web App Security Reconnaissance |
-| **Current version** | `0.1.0` |
-| **Current phase** | **Phase 1 — Foundation ✅ Completed** |
-| **Next milestone** | **Phase 2 — Browser Agent** |
-| **Last updated** | 2026-06-28 |
-| **Quality gates** | ✅ 14/14 tests passing · ✅ ruff clean · ✅ end-to-end run verified |
+| **Current version** | `0.2.0` |
+| **Current phase** | **Phase 2 — Browser Agent ✅ Completed** |
+| **Next milestone** | **Phase 3 — Vision Agent** |
+| **Last updated** | 2026-06-29 |
+| **Quality gates** | ✅ 17/17 tests passing · ✅ ruff clean · ✅ offline default run unchanged |
 
 ---
 
@@ -82,15 +82,47 @@ against a live target.
 
 ---
 
-## ⏭️ Next milestone — Phase 2: Browser Agent
+## ✅ Phase 2 — Browser Agent (Completed)
 
-Introduce a **Browser Agent** (Playwright + Chrome DevTools Protocol) for
-navigation, form interaction, authentication flows, and DevTools/network
-inspection — wired behind the existing `Agent` Protocol and orchestrator, with
-self-healing groundwork (retry/restart, session recovery). See
-[ROADMAP.md](ROADMAP.md) for the full phase plan.
+Added a **Browser Agent** (Playwright + Chrome DevTools Protocol) behind the
+existing `Agent` Protocol and orchestrator, with **zero rewrites** of Phase-1
+layers. Opt-in and off by default; degrades to a clean no-op when disabled or
+when Playwright is not installed, so the offline foundation is unchanged.
 
-**Entry criteria:** Phase 1 green (met). **Do not** restart earlier phases or
+### Implemented features
+
+- **`browser/` infrastructure** mirroring `recon/`: `BrowserModule` /
+  `BrowserContext` base and a `BrowserSession` async context manager wrapping the
+  Playwright lifecycle — lazy import, headless Chromium, network/cookie capture
+  via page events, screenshot evidence, and **retry + browser-restart
+  self-healing** on navigation crash (recorded as `recovery_plan` in traces).
+- **Browser modules**: `navigation`, `network_capture`, `cookies`,
+  `script_inventory`, `dom_links` → `URL` / `ENDPOINT` / `HEADER` / `COOKIE` /
+  `JS_FILE` assets, reusing the Phase-1 attribute shapes so existing Analysis
+  rules apply unchanged.
+- **`BrowserAgent`** drives the session, populates the knowledge graph, records a
+  reasoning trace per module, and announces work on the A2A bus.
+- **Orchestration**: an independent `browser` step (sequential + LangGraph node)
+  between recon and analysis that runs only when enabled — the Planner's 3-task
+  plan is untouched.
+- **Analysis**: additive insecure-cookie and browser-capture rules.
+- **Surfaces**: `BrowserPlugin` in the MCP catalogue (registered when enabled),
+  `recon passive-recon --browser`, `recon browse <target>`, an API `browser` flag,
+  and `RECON_BROWSER__*` settings.
+- **Quality**: 17 passing tests (14 prior + 3 hermetic browser tests:
+  disabled-by-default no-op, enabled-stubbed flow, graceful degradation);
+  ruff-clean; default offline run verified unchanged.
+
+---
+
+## ⏭️ Next milestone — Phase 3: Vision Agent
+
+Introduce a **Vision Agent** (OpenCV + EasyOCR) for screen understanding — read
+UI text, detect elements, and click by sight when the DOM is unreliable —
+establishing the perception layer used by self-healing (DOM → Vision → Human
+escalation). See [ROADMAP.md](ROADMAP.md) for the full phase plan.
+
+**Entry criteria:** Phase 2 green (met). **Do not** restart earlier phases or
 regenerate completed code — extend via the existing seams.
 
 ---
@@ -99,6 +131,9 @@ regenerate completed code — extend via the existing seams.
 
 Add dated entries here as work proceeds. Newest first.
 
+- **2026-06-29** — Phase 2 (Browser Agent) completed and verified (17 tests
+  passing, ruff clean, default offline run unchanged). Browser is opt-in and
+  off by default; released as `v0.2.0`.
 - **2026-06-28** — Phase 1 completed and verified (14 tests passing, ruff clean,
   live end-to-end run). Repository prepared for public release (`v0.1.0`).
 - _next entry…_

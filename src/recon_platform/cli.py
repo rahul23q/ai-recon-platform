@@ -21,6 +21,7 @@ from rich.table import Table
 
 from recon_platform import __version__
 from recon_platform.bootstrap import build_container
+from recon_platform.core.config import Settings
 from recon_platform.core.exceptions import ReconPlatformError
 from recon_platform.domain.enums import WorkflowType
 from recon_platform.domain.interfaces import ToolRegistry
@@ -40,6 +41,14 @@ def _force_utf8_streams() -> None:
 
 _force_utf8_streams()
 
+
+def _settings_for(browser: bool) -> Settings:
+    """Build a fresh Settings with the browser agent toggled for this run."""
+    settings = Settings()
+    settings.browser.enabled = browser
+    return settings
+
+
 app = typer.Typer(
     add_completion=False,
     help="AI-powered web-app security recon (authorized testing only).",
@@ -50,13 +59,17 @@ console = Console(legacy_windows=False)
 
 
 async def _execute(
-    target: str, report_format: str, out: pathlib.Path | None
+    target: str, report_format: str, out: pathlib.Path | None, browser: bool = False
 ) -> int:
-    container = build_container()
+    # An explicit Settings (built only when needed) lets the browser flag flip
+    # the otherwise-default-off browser agent without touching the cached
+    # process-wide settings singleton.
+    container = build_container(_settings_for(browser)) if browser else build_container()
     orch = ReconOrchestrator(container)
     engagement = EngagementContext(target=target, workflow=WorkflowType.PASSIVE_RECON)
 
-    console.rule(f"[bold]Passive recon — {target}")
+    label = "Browser recon" if browser else "Passive recon"
+    console.rule(f"[bold]{label} — {target}")
 
     run_task = asyncio.create_task(orch.run(engagement))
 
@@ -108,9 +121,33 @@ def passive_recon(
     out: pathlib.Path | None = typer.Option(
         None, "--out", "-o", help="Write the report to this file instead of stdout."
     ),
+    browser: bool = typer.Option(
+        False,
+        "--browser/--no-browser",
+        help="Also run the Playwright browser agent (requires the 'browser' extra).",
+    ),
 ) -> None:
     """Run the passive reconnaissance workflow end-to-end."""
-    code = asyncio.run(_execute(target, report_format, out))
+    code = asyncio.run(_execute(target, report_format, out, browser=browser))
+    raise typer.Exit(code)
+
+
+@app.command("browse")
+def browse(
+    target: str = typer.Argument(..., help="Authorized domain or host to browse."),
+    report_format: str = typer.Option(
+        "markdown", "--report-format", "-f", help="markdown | html | json"
+    ),
+    out: pathlib.Path | None = typer.Option(
+        None, "--out", "-o", help="Write the report to this file instead of stdout."
+    ),
+) -> None:
+    """Run the workflow with the browser agent enabled (Playwright required).
+
+    Install the extra first: ``pip install '.[browser]' && playwright install
+    chromium``. Without it, the browser step degrades to a clean no-op.
+    """
+    code = asyncio.run(_execute(target, report_format, out, browser=True))
     raise typer.Exit(code)
 
 

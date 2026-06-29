@@ -15,6 +15,7 @@ from __future__ import annotations
 import abc
 from typing import Any
 
+from recon_platform.browser.base import BrowserContext, BrowserModule
 from recon_platform.domain.enums import ToolPermission
 from recon_platform.recon.base import ModuleContext, ReconModule
 
@@ -92,3 +93,53 @@ class PassiveReconPlugin(BasePlugin):
 
     def tools(self) -> list[BaseTool]:
         return [ReconModuleTool(m, self._context_factory) for m in self._modules]
+
+
+class BrowserModuleTool(BaseTool):
+    """Adapter exposing a `BrowserModule` as a `Tool` (mirrors `ReconModuleTool`).
+
+    Surfaces each browser module uniformly in the MCP catalogue. The context
+    factory yields a live :class:`~recon_platform.browser.base.BrowserContext`
+    (so invoking a browser tool drives a real, navigated page).
+    """
+
+    def __init__(self, module: BrowserModule, context_factory) -> None:
+        self._module = module
+        self._context_factory = context_factory  # () -> BrowserContext
+        self.name = f"browser.{module.name}"
+        self.description = module.description
+        self.permissions = list(module.permissions)
+        self.input_schema = {
+            "type": "object",
+            "properties": {"target": {"type": "string"}},
+            "required": ["target"],
+        }
+        self.output_schema = {
+            "type": "object",
+            "properties": {
+                "assets": {"type": "array"},
+                "relations": {"type": "array"},
+                "notes": {"type": "array"},
+                "errors": {"type": "array"},
+            },
+        }
+
+    async def run(self, **kwargs: Any) -> dict[str, Any]:
+        ctx: BrowserContext = self._context_factory()
+        result = await self._module.run(ctx)
+        return result.model_dump(mode="json")
+
+
+class BrowserPlugin(BasePlugin):
+    """Bundles the built-in browser modules as tools (Phase 2)."""
+
+    name = "browser"
+    version = "0.2.0"
+    description = "Playwright-driven browser observation modules."
+
+    def __init__(self, modules: list[BrowserModule], context_factory) -> None:
+        self._modules = modules
+        self._context_factory = context_factory
+
+    def tools(self) -> list[BaseTool]:
+        return [BrowserModuleTool(m, self._context_factory) for m in self._modules]

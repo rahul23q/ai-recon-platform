@@ -24,7 +24,7 @@ from recon_platform.knowledge_graph.graph import InMemoryKnowledgeGraph
 from recon_platform.llm.provider import build_llm_provider
 from recon_platform.mcp.registry import InMemoryToolRegistry
 from recon_platform.memory.store import InMemoryMemory
-from recon_platform.plugins.base import PassiveReconPlugin
+from recon_platform.plugins.base import BrowserPlugin, PassiveReconPlugin
 from recon_platform.plugins.registry import PluginManager
 from recon_platform.recon.base import ModuleContext
 from recon_platform.recon.modules import build_passive_modules
@@ -57,6 +57,23 @@ def build_container(settings: Settings | None = None) -> Container:
                              client, settings)
 
     manager.register(PassiveReconPlugin(build_passive_modules(), _ctx_factory))
+
+    # Browser modules are registered only when the browser is enabled, so the
+    # optional Playwright extra stays unimported on default offline runs.
+    if settings.browser.enabled:
+        from recon_platform.browser.base import BrowserContext
+        from recon_platform.browser.modules import build_browser_modules
+        from recon_platform.browser.session import BrowserSession
+
+        target = settings.authorized_targets[0] if settings.authorized_targets else ""
+
+        def _browser_ctx_factory() -> BrowserContext:
+            # Construction is cheap and import-free; Playwright loads lazily only
+            # when the session is actually launched.
+            return BrowserContext(target, BrowserSession(settings), settings)
+
+        manager.register(BrowserPlugin(build_browser_modules(), _browser_ctx_factory))
+
     container.register_instance(PluginManager, manager)
 
     return container

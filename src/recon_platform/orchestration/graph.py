@@ -16,7 +16,13 @@ import asyncio
 from collections.abc import AsyncIterator
 from typing import Any
 
-from recon_platform.agents import AnalysisAgent, PlannerAgent, ReconAgent, ReportingAgent
+from recon_platform.agents import (
+    AnalysisAgent,
+    BrowserAgent,
+    PlannerAgent,
+    ReconAgent,
+    ReportingAgent,
+)
 from recon_platform.core.config import Settings
 from recon_platform.core.container import Container
 from recon_platform.core.logging import get_logger
@@ -43,6 +49,9 @@ class ReconOrchestrator:
 
         self._planner = PlannerAgent(self._bus, self._memory, self._llm)
         self._recon = ReconAgent(
+            self._bus, self._memory, self._llm, self._graph, self._settings
+        )
+        self._browser = BrowserAgent(
             self._bus, self._memory, self._llm, self._graph, self._settings
         )
         self._analysis = AnalysisAgent(self._bus, self._memory, self._llm, self._graph)
@@ -88,9 +97,26 @@ class ReconOrchestrator:
         task.status = TaskStatus.COMPLETED
         state.assets, state.relations = assets, relations
 
+    async def _step_browser(self, state: RunState) -> None:
+        """Optional browser-agent step.
+
+        Runs independently of the Planner's task graph (no new plan task), so the
+        passive plan stays a fixed 3 tasks. The agent itself no-ops cleanly when
+        the browser is disabled or Playwright is absent, so this step is always
+        safe to call. Discovered assets/relations flow through the shared
+        knowledge graph exactly like recon output.
+        """
+        if not self._settings.browser.enabled:
+            return
+        await self._emit("step", name="browser")
+        assets, relations = await self._browser.run_browser(state.engagement)
+        state.assets += assets
+        state.relations += relations
+
     async def _step_analyze(self, state: RunState) -> None:
         await self._emit("step", name="analyze")
-        state.findings = await self._analysis.analyze()
+        # Extend (not replace): browser-derived findings coexist with recon ones.
+        state.findings += await self._analysis.analyze()
         state.executive_summary = await self._analysis.executive_summary(
             state.findings, state.engagement.target
         )
@@ -131,6 +157,7 @@ class ReconOrchestrator:
     async def _run_sequential(self, state: RunState) -> None:
         await self._step_plan(state)
         await self._step_recon(state)
+        await self._step_browser(state)
         await self._step_analyze(state)
         await self._step_report(state)
 
@@ -158,6 +185,10 @@ class ReconOrchestrator:
             await self._step_recon(s["state"])
             return s
 
+        async def browser_node(s: dict) -> dict:
+            await self._step_browser(s["state"])
+            return s
+
         async def analyze_node(s: dict) -> dict:
             await self._step_analyze(s["state"])
             return s
@@ -169,11 +200,13 @@ class ReconOrchestrator:
         builder: StateGraph = StateGraph(dict)
         builder.add_node("plan", plan_node)
         builder.add_node("recon", recon_node)
+        builder.add_node("browser", browser_node)
         builder.add_node("analyze", analyze_node)
         builder.add_node("report", report_node)
         builder.add_edge(START, "plan")
         builder.add_edge("plan", "recon")
-        builder.add_edge("recon", "analyze")
+        builder.add_edge("recon", "browser")
+        builder.add_edge("browser", "analyze")
         builder.add_edge("analyze", "report")
         builder.add_edge("report", END)
 

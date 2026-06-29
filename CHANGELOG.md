@@ -4,6 +4,44 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.2.0] — 2026-06-29
+
+### Phase 2 — Browser Agent (Completed)
+
+A Playwright + Chrome DevTools **Browser Agent**, wired behind the existing
+`Agent` Protocol and orchestrator without rewriting any Phase-1 layer. Opt-in and
+off by default; degrades to a clean no-op when disabled or when Playwright is not
+installed, so the offline foundation is unaffected.
+
+#### Added
+
+- **Browser infrastructure** (`browser/`): `BrowserModule`/`BrowserContext`
+  base, a `BrowserSession` async context manager wrapping the Playwright
+  lifecycle (lazy import, headless Chromium, network/cookie capture, screenshot
+  evidence, and retry + browser-restart self-healing on navigation crash).
+- **Browser modules**: `navigation` (real-browser page load → `URL` asset +
+  screenshot), `network_capture` (same-origin requests → `ENDPOINT`, response
+  headers → `HEADER`), `cookies` (→ `COOKIE` with Secure/HttpOnly/SameSite
+  flags), `script_inventory` (→ `JS_FILE`), and `dom_links` (same-origin links /
+  form actions → `ENDPOINT`).
+- **`BrowserAgent`**: drives the session, populates the knowledge graph, records
+  a reasoning trace per module, and announces work on the A2A bus — mirroring
+  `ReconAgent`.
+- **Orchestration**: an independent `browser` step between recon and analysis
+  (sequential path + LangGraph node) that runs only when enabled and leaves the
+  Planner's 3-task plan untouched.
+- **Analysis**: additive rules for insecure cookies (missing Secure / HttpOnly /
+  SameSite) and a browser-capture summary carrying screenshot evidence.
+- **Tooling & surfaces**: `BrowserPlugin` exposes the browser modules in the MCP
+  catalogue (registered only when enabled); `recon passive-recon --browser` and a
+  new `recon browse <target>` command; a `browser` flag on the API `RunRequest`;
+  `RECON_BROWSER__*` settings.
+- **Tests**: hermetic browser tests (no real Chromium / Playwright) covering
+  disabled-by-default no-op, enabled-stubbed asset/finding flow, and graceful
+  degradation when Playwright is absent.
+
+[0.2.0]: https://github.com/OWNER/recon-platform/releases/tag/v0.2.0
+
 ## [0.1.0] — 2026-06-28
 
 ### Phase 1 — Foundation (Completed)

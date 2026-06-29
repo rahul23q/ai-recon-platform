@@ -10,8 +10,8 @@ the established Protocol seams (agents, tools, renderers, bus, memory).
 | Phase | Milestone | Status |
 |------:|-----------|:------:|
 | 1 | Foundation | ✅ |
-| 2 | Browser Agent | 🔜 |
-| 3 | Vision Agent | ⏳ |
+| 2 | Browser Agent | ✅ |
+| 3 | Vision Agent | 🔜 |
 | 4 | Active Recon & Tool Plugins | ⏳ |
 | 5 | Network Agent | ⏳ |
 | 6 | API Discovery Agent | ⏳ |
@@ -41,14 +41,17 @@ orchestration (with a sequential fallback), the plugin + MCP tool registries,
 Markdown/HTML/JSON reporting, a FastAPI + WebSocket surface, and a Typer CLI.
 **Outcome:** `recon passive-recon <target>` runs end-to-end, offline-capable.
 
-## Phase 2 — Browser Agent 🔜
+## Phase 2 — Browser Agent ✅
 
-A Playwright + Chrome DevTools Protocol agent for real-browser navigation, form
-interaction, authentication, and DevTools/network inspection. Introduces
-headless browsing, page state capture, and screenshot evidence behind the
-existing `Agent` Protocol.
+A Playwright + Chrome DevTools Protocol agent for real-browser navigation and
+DevTools/network inspection, wired behind the existing `Agent` Protocol and
+orchestrator. Delivered headless Chromium browsing with retry + browser-restart
+self-healing, page-state capture (network requests, response headers, cookies,
+script inventory, same-origin DOM links), and screenshot evidence — opt-in and
+off by default, degrading to a clean no-op when disabled or when Playwright is
+absent. Form interaction and authentication flows build on this in Phase 8.
 
-## Phase 3 — Vision Agent ⏳
+## Phase 3 — Vision Agent 🔜
 
 OpenCV + EasyOCR for screen understanding: read UI text, detect elements, and
 click by sight when the DOM is unreliable. Establishes the perception layer used

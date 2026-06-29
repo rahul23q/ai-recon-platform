@@ -50,6 +50,27 @@ class APISettings(BaseSettings):
     port: int = 8000
 
 
+class BrowserSettings(BaseSettings):
+    """Browser-agent configuration (Playwright + Chrome DevTools).
+
+    Off by default so the foundation stays offline-capable and CI without
+    Playwright installed is unaffected. Enable with ``RECON_BROWSER__ENABLED=1``
+    (or the ``--browser`` CLI flag) after ``pip install '.[browser]' &&
+    playwright install chromium``.
+    """
+
+    model_config = SettingsConfigDict(env_prefix="RECON_BROWSER__")
+
+    enabled: bool = False
+    headless: bool = True
+    engine: str = "chromium"
+    nav_timeout_seconds: float = 30.0
+    screenshot: bool = True
+    screenshot_dir: str = "reports/screenshots"
+    # Navigation budget (the foundation visits the home page only).
+    max_pages: int = 1
+
+
 class Settings(BaseSettings):
     """Root settings object — the single source of truth for configuration."""
 
@@ -64,6 +85,7 @@ class Settings(BaseSettings):
     llm: LLMSettings = Field(default_factory=LLMSettings)
     http: HTTPSettings = Field(default_factory=HTTPSettings)
     api: APISettings = Field(default_factory=APISettings)
+    browser: BrowserSettings = Field(default_factory=BrowserSettings)
 
     # Engagement guardrail: when true, targets must pass the authorization gate.
     authorized_only: bool = True

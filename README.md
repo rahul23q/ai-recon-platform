@@ -11,12 +11,14 @@ generates professional reports.
 
 ---
 
-## Status — Phase 1 (Foundation + vertical slice)
+## Status — Phase 2 (Browser Agent)
 
-This repository contains the **Clean-Architecture foundation** plus one working
-end-to-end workflow: **Passive Recon → Analysis → Report**, driven by a
+This repository contains the **Clean-Architecture foundation** plus the working
+end-to-end workflow **Passive Recon → (Browser) → Analysis → Report**, driven by a
 multi-agent pipeline over a structured Agent-to-Agent (A2A) message bus, with
-optional LangGraph orchestration and Anthropic Claude reasoning.
+optional LangGraph orchestration and Anthropic Claude reasoning. Phase 2 adds an
+opt-in **Browser Agent** (Playwright + Chrome DevTools) behind the same `Agent`
+Protocol; it is off by default so the platform still runs fully offline.
 
 It is designed to grow module-by-module (active recon, browser/vision agents,
 more plugins, the live dashboard) without changing the existing layers.
@@ -60,7 +62,40 @@ Agent     Agent         Agent           Agent         Agent            Graph Age
 - **Reporting**: Markdown / HTML / JSON renderers with executive + technical
   sections, OWASP/severity mapping hooks.
 - **FastAPI + WebSocket** app exposing runs and a live event stream.
-- **Typer CLI**: `recon passive-recon <target>`.
+- **Typer CLI**: `recon passive-recon <target>` (and `recon browse <target>`).
+- **Browser Agent** (Phase 2, opt-in): a Playwright + Chrome DevTools agent that
+  navigates in a real headless Chromium, captures network requests, response
+  headers, cookies, scripts and same-origin links, and saves screenshot evidence
+  — with retry + browser-restart self-healing. Discovered assets flow into the
+  same knowledge graph and reporting; insecure-cookie and capture findings are
+  added by Analysis.
+
+---
+
+## Browser Agent (Phase 2)
+
+The Browser Agent is **off by default**. Enable it by installing the extra and
+its Chromium binary, then pass `--browser` (or use the `browse` command):
+
+```bash
+pip install -e ".[browser]"        # adds Playwright
+playwright install chromium        # one-time browser download
+
+# Passive recon plus the browser pass:
+recon passive-recon example.com --browser
+
+# Browser-focused convenience command (enables the agent for you):
+recon browse example.com
+
+# Or enable it via the environment / API:
+RECON_BROWSER__ENABLED=1 recon tools          # lists the browser.* tools
+# API:  POST /runs {"target": "example.com", "browser": true}
+```
+
+If Playwright is not installed (or the browser is disabled), the browser step
+**degrades to a clean no-op** and records a skip trace — the passive pipeline is
+unaffected. Screenshots are written under `reports/screenshots/` by default
+(`RECON_BROWSER__SCREENSHOT_DIR`).
 
 ---
 
@@ -101,10 +136,11 @@ pytest
 
 ## Roadmap (next slices)
 
-1. Active recon workflow + external tool plugins (httpx, subfinder, nuclei).
-2. Browser Agent (Playwright) + Vision Agent (OpenCV/EasyOCR) with self-healing.
-3. Network/API agents (JWT, GraphQL, WebSocket inspection).
-4. Live dashboard UI, Redis/Postgres persistence, Celery distributed workers.
-5. Reporting: PDF/DOCX, OWASP/MITRE ATT&CK/CWE/CVSS mapping.
+1. ✅ Browser Agent (Playwright) with self-healing — **done (Phase 2)**.
+2. Vision Agent (OpenCV/EasyOCR) for screen understanding and click-by-sight.
+3. Active recon workflow + external tool plugins (httpx, subfinder, nuclei).
+4. Network/API agents (JWT, GraphQL, WebSocket inspection).
+5. Live dashboard UI, Redis/Postgres persistence, Celery distributed workers.
+6. Reporting: PDF/DOCX, OWASP/MITRE ATT&CK/CWE/CVSS mapping.
 
 See `docs/` (to be added) and inline module docstrings for extension points.
