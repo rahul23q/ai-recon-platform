@@ -4,6 +4,78 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.5.0] — 2026-06-30
+
+### Phase 5 — Active Recon & Tool Plugins (Completed)
+
+An **Active-Recon agent** that integrates ten best-of-breed external security
+tools (httpx, subfinder, amass, naabu, nmap, katana, gau, dirsearch, ffuf,
+nuclei) as first-class plugins, wired behind the existing `Agent` Protocol and
+orchestrator without rewriting any earlier layer. Opt-in and off by default,
+behind a *two-key* authorization posture, and **intrusive** by nature
+(`NETWORK_ACTIVE` + `SUBPROCESS`). The pipeline is now Planner → Recon → Browser
+→ Vision → Verification → Desktop → **Active Recon** → Analysis → Reporting.
+
+#### Added
+
+- **Active-recon infrastructure** (`active_recon/`): a provider-independent
+  external-tool framework mirroring `recon/` / `desktop/`. An `ExternalTool`
+  contract (declare a binary, build a command line, parse stdout into the common
+  `Asset` / `Relation` domain models), a shared async `ToolRunner` (one place for
+  timeout / retries / cancellation / output-capture, killing the child on expiry
+  or abort), a normalized `ToolExecution` record (command / stdout / stderr /
+  exit / duration / timed-out / skipped), and an import-free `binary_available`
+  PATH probe. Tools are discovered on `PATH` and **never imported**, so a missing
+  binary is skipped cleanly and the platform installs and runs without any present.
+- **Ten tool wrappers** + a `build_active_tools` factory and `ACTIVE_TOOLS` map:
+  httpx (live HTTP probe → `URL` / `TECHNOLOGY`), subfinder & amass (passive
+  subdomains → `SUBDOMAIN` + `SUBDOMAIN_OF`), naabu (ports → `PORT` + `EXPOSES`),
+  nmap (grepable service/version → `SERVICE` + `EXPOSES`), katana / gau /
+  dirsearch / ffuf (crawl/fuzz → `ENDPOINT` / `URL`), and nuclei (templated
+  findings → `VULNERABILITY` with severity + `AFFECTS`). Parsers are defensive —
+  unknown keys, blank lines, and partial output are ignored, never raised.
+- **Two-key safety posture**: `RECON_ACTIVE_RECON__ENABLED` turns the agent on;
+  `RECON_ACTIVE_RECON__AUTHORIZED` is a separate explicit acknowledgment that the
+  operator is permitted to actively scan. Tools run only when **both** are true
+  **and** the target passes the engagement authorization gate; any other state
+  records a clean skip trace and returns empty — nothing intrusive by accident.
+- **Asset / relation types**: `SERVICE` and `VULNERABILITY` assets (severity in
+  `attributes`) and the `AFFECTS` relation (a vulnerability affects an asset).
+- **`ActiveReconAgent`**: builds the configured tool set (all by default, or a
+  named subset), runs each through the shared runner, merges results into the
+  knowledge graph, records a reasoning trace per tool, stores each full execution
+  in episodic memory, and emits `active.*` A2A events for the dashboard.
+- **Orchestration**: an independent `active_recon` step (sequential + LangGraph
+  node) between desktop and analysis — the Planner's 3-task plan is untouched.
+- **Analysis & reporting**: additive rules turning tool-reported vulnerabilities
+  into ranked findings and summarizing the discovered live attack surface, plus
+  an "Active Reconnaissance" report section (open services + reported
+  vulnerabilities grouped by severity).
+- **Surfaces**: `ActiveReconPlugin` exposing each tool in the MCP catalogue
+  (registered only when enabled), `recon passive-recon --active`, a dedicated
+  `recon active-recon <target>` command, an API `active` flag, and
+  `RECON_ACTIVE_RECON__*` settings.
+- **Quality**: 22 new hermetic tests (no real binaries / subprocess / network) —
+  the ten parsers, the framework (`ToolExecution`, runner skip/parse paths,
+  plugin adapter), and the two-key gate + a stubbed end-to-end run; `ruff check`
+  clean; default offline run verified unchanged.
+
+#### Known issues
+
+- `tests/test_verification.py::test_agreement_missing_reported_as_verified` fails
+  on `main` and is **pre-existing and unrelated to Phase 5** (it fails identically
+  with all Phase-5 changes stashed; Phase 5 touches none of the verification
+  path). Root cause is a Phase-1 ↔ Phase-3.1 interaction: the knowledge graph
+  dedupes `HEADER` assets by `type:value`, so identical headers emitted by both
+  the passive (`http_headers`) and browser (`network_capture`) sources collapse
+  into one asset keeping a single `source`. `collect_header_maps` then sees an
+  empty browser map, `browser_observed` becomes `False`, and CSP is graded
+  `LIKELY`-missing instead of `VERIFIED`-missing, so no "verified missing" finding
+  is produced. A correct fix requires the central graph merge to preserve multiple
+  observation sources for an identical-value asset — a core change that warrants
+  its own reviewed work (deferred; tracked with the Phase 15 correlation work).
+  See *Known issues* in [PROJECT_STATUS.md](PROJECT_STATUS.md) for detail.
+
 ## [0.4.0] — 2026-06-30
 
 ### Phase 4 — Desktop Automation Agent (Completed)

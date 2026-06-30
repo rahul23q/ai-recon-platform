@@ -13,8 +13,8 @@ the established Protocol seams (agents, tools, renderers, bus, memory).
 | 2 | Browser Agent | ✅ |
 | 3 | Vision Agent | ✅ |
 | 4 | Desktop Automation Agent | ✅ |
-| 5 | Active Recon & Tool Plugins | 🔜 |
-| 6 | Network Agent | ⏳ |
+| 5 | Active Recon & Tool Plugins | ✅ |
+| 6 | Network Agent | 🔜 |
 | 7 | API Discovery Agent | ⏳ |
 | 8 | JavaScript Analysis | ⏳ |
 | 9 | Authentication Workflows | ⏳ |
@@ -96,11 +96,25 @@ Phase 16.
 > → Analysis → Reporting. Desktop was promoted from its original Phase 18 slot at
 > the maintainer's direction; the later phases are renumbered below.
 
-## Phase 5 — Active Recon & Tool Plugins 🔜
+## Phase 5 — Active Recon & Tool Plugins ✅
 
-External tool integrations as first-class plugins (httpx, subfinder, naabu,
-katana, gau, amass, dirsearch, ffuf, nuclei, nmap). Adds the active-recon
-workflow gated by explicit authorization and `NETWORK_ACTIVE` permissions.
+External tool integrations as first-class plugins (httpx, subfinder, amass,
+naabu, nmap, katana, gau, dirsearch, ffuf, nuclei), wired behind the existing
+`Agent` Protocol and orchestrator. Delivered a provider-independent
+`ExternalTool` framework with a shared async `ToolRunner` (timeout / retries /
+cancellation / output capture) and a normalized `ToolExecution` record; binaries
+are discovered on `PATH` and never imported, so any not installed are skipped
+cleanly. Each tool normalizes its stdout into the common `Asset` / `Relation`
+models (new `SERVICE` / `VULNERABILITY` assets and the `AFFECTS` relation),
+feeding tool-reported vulnerabilities and the live attack surface into findings
+and a new "Active Reconnaissance" report section. The active-recon workflow is
+gated by a **two-key** posture (`enabled` + `authorized`) plus the engagement
+authorization gate and `NETWORK_ACTIVE` / `SUBPROCESS` permissions — opt-in and
+off by default, degrading to a clean skip when disabled, unauthorized, or with no
+tool binaries present. Deeper request/response analysis builds on this in Phase 6.
+
+> Pipeline is now Planner → Recon → Browser → Vision → Verification → Desktop →
+> **Active Recon** → Analysis → Reporting.
 
 ## Phase 6 — Network Agent ⏳
 

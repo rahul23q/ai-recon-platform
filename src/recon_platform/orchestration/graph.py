@@ -17,6 +17,7 @@ from collections.abc import AsyncIterator
 from typing import Any
 
 from recon_platform.agents import (
+    ActiveReconAgent,
     AnalysisAgent,
     BrowserAgent,
     DesktopAgent,
@@ -64,6 +65,9 @@ class ReconOrchestrator:
             self._bus, self._memory, self._llm, self._graph, self._settings
         )
         self._desktop = DesktopAgent(
+            self._bus, self._memory, self._llm, self._graph, self._settings
+        )
+        self._active = ActiveReconAgent(
             self._bus, self._memory, self._llm, self._graph, self._settings
         )
         self._analysis = AnalysisAgent(self._bus, self._memory, self._llm, self._graph)
@@ -168,6 +172,21 @@ class ReconOrchestrator:
         state.assets += assets
         state.relations += relations
 
+    async def _step_active(self, state: RunState) -> None:
+        """Optional active-recon step (after desktop, before analysis).
+
+        Runs the external tool plugins (httpx, subfinder, nuclei, nmap, …) behind
+        a two-key authorization gate; it no-ops cleanly when active recon is
+        disabled, unauthorized, or no tool binaries are installed. Discovered
+        assets flow through the shared knowledge graph like every other agent's.
+        """
+        if not self._settings.active_recon.enabled:
+            return
+        await self._emit("step", name="active_recon")
+        assets, relations = await self._active.run_active(state.engagement)
+        state.assets += assets
+        state.relations += relations
+
     async def _step_analyze(self, state: RunState) -> None:
         await self._emit("step", name="analyze")
         # Extend (not replace): browser-derived findings coexist with recon ones.
@@ -216,6 +235,7 @@ class ReconOrchestrator:
         await self._step_vision(state)
         await self._step_verify(state)
         await self._step_desktop(state)
+        await self._step_active(state)
         await self._step_analyze(state)
         await self._step_report(state)
 
@@ -259,6 +279,10 @@ class ReconOrchestrator:
             await self._step_desktop(s["state"])
             return s
 
+        async def active_node(s: dict) -> dict:
+            await self._step_active(s["state"])
+            return s
+
         async def analyze_node(s: dict) -> dict:
             await self._step_analyze(s["state"])
             return s
@@ -274,6 +298,7 @@ class ReconOrchestrator:
         builder.add_node("vision", vision_node)
         builder.add_node("verification", verify_node)
         builder.add_node("desktop", desktop_node)
+        builder.add_node("active_recon", active_node)
         builder.add_node("analyze", analyze_node)
         builder.add_node("report", report_node)
         builder.add_edge(START, "plan")
@@ -282,7 +307,8 @@ class ReconOrchestrator:
         builder.add_edge("browser", "vision")
         builder.add_edge("vision", "verification")
         builder.add_edge("verification", "desktop")
-        builder.add_edge("desktop", "analyze")
+        builder.add_edge("desktop", "active_recon")
+        builder.add_edge("active_recon", "analyze")
         builder.add_edge("analyze", "report")
         builder.add_edge("report", END)
 

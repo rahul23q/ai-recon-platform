@@ -1,5 +1,6 @@
 """Multi-agent layer."""
 
+from recon_platform.agents.active_recon import ActiveReconAgent
 from recon_platform.agents.analysis import AnalysisAgent
 from recon_platform.agents.base import BaseAgent
 from recon_platform.agents.browser import BrowserAgent
@@ -18,6 +19,7 @@ __all__ = [
     "VisionAgent",
     "VerificationAgent",
     "DesktopAgent",
+    "ActiveReconAgent",
     "AnalysisAgent",
     "ReportingAgent",
 ]

@@ -163,6 +163,36 @@ class MarkdownRenderer:
                     lines.append(f"- [{state}] {a.value}")
                 lines.append("")
 
+        # Active reconnaissance (Phase 5) — only when active tools ran.
+        services = [
+            a for a in bundle.assets if a.type in (AssetType.SERVICE, AssetType.PORT)
+        ]
+        vulns = [a for a in bundle.assets if a.type == AssetType.VULNERABILITY]
+        if services or vulns:
+            lines.append("## Active Reconnaissance")
+            lines.append("")
+            if services:
+                lines.append(f"**Open services / ports ({len(services)}):**")
+                for s in services[:40]:
+                    svc = s.attributes.get("service") or s.attributes.get("product") or ""
+                    suffix = f" — {svc}" if svc else ""
+                    lines.append(f"- `{s.value}`{suffix}")
+                lines.append("")
+            if vulns:
+                by_sev: dict[str, int] = {}
+                for v in vulns:
+                    sev = str(v.attributes.get("severity", "info"))
+                    by_sev[sev] = by_sev.get(sev, 0) + 1
+                summary = ", ".join(f"{k}: {v}" for k, v in sorted(by_sev.items()))
+                lines.append(f"**Reported vulnerabilities ({len(vulns)}):** {summary}")
+                lines.append("")
+                for v in vulns[:40]:
+                    sev = str(v.attributes.get("severity", "info")).upper()
+                    name = v.attributes.get("name", v.value)
+                    matched = v.attributes.get("matched_at", "")
+                    lines.append(f"- [{sev}] {name}" + (f" — `{matched}`" if matched else ""))
+                lines.append("")
+
         # Appendix: reasoning trace
         lines.append("## Appendix — Reasoning Trace")
         lines.append("")

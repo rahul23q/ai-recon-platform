@@ -42,17 +42,25 @@ def _force_utf8_streams() -> None:
 _force_utf8_streams()
 
 
-def _settings_for(browser: bool, vision: bool = False, desktop: bool = False) -> Settings:
-    """Build a fresh Settings with the browser / vision / desktop agents toggled.
+def _settings_for(
+    browser: bool, vision: bool = False, desktop: bool = False, active: bool = False
+) -> Settings:
+    """Build a fresh Settings with the browser / vision / desktop / active agents toggled.
 
     Vision analyzes the Browser agent's screenshots, so enabling vision implies
     enabling the browser too. The desktop agent is independent, but it can act on
     the Vision agent's detected on-screen elements when both are enabled.
+
+    ``active`` turns the active-recon agent *on*, but its **second** safety key
+    (``RECON_ACTIVE_RECON__AUTHORIZED``) and the engagement authorization gate are
+    deliberately left to the environment — the flag alone never starts an intrusive
+    scan. Without the second key the active step records a clean skip.
     """
     settings = Settings()
     settings.browser.enabled = browser or vision
     settings.vision.enabled = vision
     settings.desktop.enabled = desktop
+    settings.active_recon.enabled = active
     return settings
 
 
@@ -72,20 +80,23 @@ async def _execute(
     browser: bool = False,
     vision: bool = False,
     desktop: bool = False,
+    active: bool = False,
 ) -> int:
     # An explicit Settings (built only when needed) lets the browser / vision /
-    # desktop flags flip the otherwise-default-off agents without touching the
-    # cached process-wide settings singleton.
+    # desktop / active flags flip the otherwise-default-off agents without touching
+    # the cached process-wide settings singleton.
     container = (
-        build_container(_settings_for(browser, vision, desktop))
-        if (browser or vision or desktop)
+        build_container(_settings_for(browser, vision, desktop, active))
+        if (browser or vision or desktop or active)
         else build_container()
     )
     orch = ReconOrchestrator(container)
     engagement = EngagementContext(target=target, workflow=WorkflowType.PASSIVE_RECON)
 
     label = (
-        "Desktop recon"
+        "Active recon"
+        if active
+        else "Desktop recon"
         if desktop
         else "Vision recon"
         if vision
@@ -162,10 +173,25 @@ def passive_recon(
         help="Also run the Desktop agent (windows / capture / clipboard; gated "
         "input). Requires the 'desktop' extra; off by default.",
     ),
+    active: bool = typer.Option(
+        False,
+        "--active/--no-active",
+        help="Also run the Active-Recon agent (external tools: httpx, subfinder, "
+        "nuclei, nmap, …). Intrusive: additionally requires "
+        "RECON_ACTIVE_RECON__AUTHORIZED=1 and an authorized target; off by default.",
+    ),
 ) -> None:
     """Run the passive reconnaissance workflow end-to-end."""
     code = asyncio.run(
-        _execute(target, report_format, out, browser=browser, vision=vision, desktop=desktop)
+        _execute(
+            target,
+            report_format,
+            out,
+            browser=browser,
+            vision=vision,
+            desktop=desktop,
+            active=active,
+        )
     )
     raise typer.Exit(code)
 
@@ -237,6 +263,35 @@ def desktop(
     code = asyncio.run(
         _execute(target, report_format, out, vision=with_vision, desktop=True)
     )
+    raise typer.Exit(code)
+
+
+@app.command("active-recon")
+def active_recon(
+    target: str = typer.Argument(..., help="Authorized domain or host to actively scan."),
+    report_format: str = typer.Option(
+        "markdown", "--report-format", "-f", help="markdown | html | json"
+    ),
+    out: pathlib.Path | None = typer.Option(
+        None, "--out", "-o", help="Write the report to this file instead of stdout."
+    ),
+) -> None:
+    """Run the workflow with the Active-Recon agent enabled (external tools).
+
+    Active recon is **intrusive** and behind a *two-key* posture. This command
+    turns the agent on (the first key); it actually scans only when the **second**
+    key and the engagement gate are also satisfied:
+
+      * ``RECON_ACTIVE_RECON__AUTHORIZED=1`` — explicit acknowledgment that you are
+        permitted to actively scan the target, and
+      * the target passes the authorization gate (``RECON_AUTHORIZED_TARGETS`` /
+        ``RECON_AUTHORIZED_ONLY``).
+
+    Tools (httpx, subfinder, amass, naabu, nmap, katana, gau, dirsearch, ffuf,
+    nuclei) are discovered on ``PATH`` and never imported, so any that are not
+    installed are skipped cleanly. Without the second key the step is a no-op.
+    """
+    code = asyncio.run(_execute(target, report_format, out, active=True))
     raise typer.Exit(code)
 
 

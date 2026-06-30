@@ -11,16 +11,17 @@ generates professional reports.
 
 ---
 
-## Status — Phase 4 (Desktop Automation Agent)
+## Status — Phase 5 (Active Recon & Tool Plugins)
 
 This repository contains the **Clean-Architecture foundation** plus the working
 end-to-end workflow **Passive Recon → (Browser) → (Vision) → Verification →
-(Desktop) → Analysis → Report**, driven by a multi-agent pipeline over a
-structured Agent-to-Agent (A2A) message bus, with optional LangGraph
-orchestration and Anthropic Claude reasoning. Phases 2–4 add opt-in **Browser**
-(Playwright + Chrome DevTools), **Vision** (OCR + visual intelligence) and
-**Desktop** (mouse / keyboard / windows / clipboard / screen capture) agents
-behind the same `Agent` Protocol; all are off by default so the platform still
+(Desktop) → (Active Recon) → Analysis → Report**, driven by a multi-agent
+pipeline over a structured Agent-to-Agent (A2A) message bus, with optional
+LangGraph orchestration and Anthropic Claude reasoning. Phases 2–5 add opt-in
+**Browser** (Playwright + Chrome DevTools), **Vision** (OCR + visual
+intelligence), **Desktop** (mouse / keyboard / windows / clipboard / screen
+capture) and **Active Recon** (external tool plugins) agents behind the same
+`Agent` Protocol; all are off by default so the platform still
 runs fully offline. A **Verification** stage corroborates passive findings
 against the browser so results are graded Verified / Likely / Needs-Verification
 / False Positive instead of over-reported.
@@ -90,6 +91,16 @@ Agent     Agent         Agent           Agent         Agent            Graph Age
   behind a two-key safety posture: enabling it allows observation only, while
   real input additionally requires `RECON_DESKTOP__ALLOW_INPUT`. Off by default
   and degrades to a clean no-op without the `desktop` extra or a display.
+- **Active Recon Agent** (Phase 5, opt-in): integrates ten external security
+  tools (httpx, subfinder, amass, naabu, nmap, katana, gau, dirsearch, ffuf,
+  nuclei) as first-class plugins behind a provider-independent `ExternalTool`
+  framework and a shared async `ToolRunner` (timeout / retries / cancellation).
+  Binaries are discovered on `PATH` and never imported, so any not installed are
+  skipped cleanly. Normalizes tool output into the knowledge graph (new `SERVICE`
+  / `VULNERABILITY` assets + `AFFECTS` relations) and an "Active Reconnaissance"
+  report section. **Intrusive**, off by default behind a two-key posture
+  (`RECON_ACTIVE_RECON__ENABLED` + `RECON_ACTIVE_RECON__AUTHORIZED`) plus the
+  engagement authorization gate.
 
 ---
 
@@ -185,6 +196,47 @@ coordinates.
 
 > ⚠️ Synthetic input drives the *local* machine running the platform. Only enable
 > `allow_input` in an environment you control and are authorized to automate.
+
+---
+
+## Active Recon (Phase 5)
+
+The Active-Recon agent integrates best-of-breed external tools as first-class
+plugins. It is **off by default and intrusive**, so it sits behind a *two-key*
+posture: `RECON_ACTIVE_RECON__ENABLED` turns the agent on, and
+`RECON_ACTIVE_RECON__AUTHORIZED` is a separate, explicit acknowledgment that you
+are permitted to actively scan the target. Tools run only when **both** are set
+**and** the target passes the engagement authorization gate
+(`RECON_AUTHORIZED_TARGETS` / `RECON_AUTHORIZED_ONLY`); otherwise the step records
+a clean skip.
+
+Tools (httpx, subfinder, amass, naabu, nmap, katana, gau, dirsearch, ffuf,
+nuclei) are discovered on `PATH` and **never imported** — install only the ones
+you need; any that are absent are skipped cleanly.
+
+```bash
+# Turn the agent on (first key); it scans only with the second key + an
+# authorized target:
+RECON_ACTIVE_RECON__AUTHORIZED=1 RECON_AUTHORIZED_TARGETS=example.com \
+  recon active-recon example.com
+
+# Add active recon to a passive run:
+RECON_ACTIVE_RECON__AUTHORIZED=1 RECON_AUTHORIZED_TARGETS=example.com \
+  recon passive-recon example.com --active
+
+# Restrict to a subset of tools, add a nuclei severity filter / wordlist:
+export RECON_ACTIVE_RECON__TOOLS='["httpx","nuclei"]'
+export RECON_ACTIVE_RECON__NUCLEI_SEVERITY=high,critical
+export RECON_ACTIVE_RECON__WORDLIST=/path/to/wordlist.txt
+# API:  POST /runs {"target": "example.com", "active": true}
+```
+
+Tool-reported vulnerabilities (e.g. nuclei matches) become ranked findings, and
+open services / live hosts / endpoints / subdomains are summarized as the
+discovered attack surface, rendered in an "Active Reconnaissance" report section.
+
+> ⚠️ Active recon sends intrusive traffic to the target. Only run it against
+> systems you are explicitly authorized to test.
 
 ---
 

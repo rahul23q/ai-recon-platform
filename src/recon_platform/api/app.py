@@ -32,7 +32,7 @@ def create_app(container: Container | None = None):  # noqa: C901 - factory
     from pydantic import BaseModel
 
     container = container or build_container()
-    app = FastAPI(title="recon-platform", version="0.4.0")
+    app = FastAPI(title="recon-platform", version="0.5.0")
 
     # In-memory run registry (swap for Redis/Postgres in the infra config).
     runs: dict[str, dict[str, Any]] = {}
@@ -51,6 +51,11 @@ def create_app(container: Container | None = None):  # noqa: C901 - factory
         # Independent of the browser; degrades to a no-op without the 'desktop'
         # extra. Synthetic input still requires RECON_DESKTOP__ALLOW_INPUT.
         desktop: bool = False
+        # Opt-in active-recon agent (external tools: httpx, subfinder, nuclei, …).
+        # Intrusive: turning it on here is only the first key — it scans only when
+        # RECON_ACTIVE_RECON__AUTHORIZED is also set and the target passes the
+        # authorization gate; otherwise the step records a clean skip.
+        active: bool = False
 
     @app.get("/healthz")
     async def healthz() -> dict[str, str]:
@@ -67,13 +72,14 @@ def create_app(container: Container | None = None):  # noqa: C901 - factory
         # container, so concurrent runs don't share state. An explicit Settings
         # is used only when the browser / vision agents are requested. Vision
         # implies browser (it analyzes the browser's screenshots).
-        if req.browser or req.vision or req.desktop:
+        if req.browser or req.vision or req.desktop or req.active:
             from recon_platform.core.config import Settings
 
             run_settings = Settings()
             run_settings.browser.enabled = req.browser or req.vision
             run_settings.vision.enabled = req.vision
             run_settings.desktop.enabled = req.desktop
+            run_settings.active_recon.enabled = req.active
             run_container = build_container(run_settings)
         else:
             run_container = build_container()

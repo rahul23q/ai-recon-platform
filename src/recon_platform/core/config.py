@@ -137,6 +137,41 @@ class DesktopSettings(BaseSettings):
     min_element_confidence: float = 0.5
 
 
+class ActiveReconSettings(BaseSettings):
+    """Active-recon configuration (external tool plugins — Phase 5).
+
+    **Off by default** and behind a *two-key* safety posture, because active
+    scanning is intrusive: ``enabled`` turns the agent on, and ``authorized`` is a
+    separate explicit acknowledgment that the operator is permitted to actively
+    scan the target. Active tools run only when **both** are true *and* the target
+    passes the authorization gate.
+
+    Tools are external binaries discovered on ``PATH`` and invoked via subprocess;
+    none are imported. A missing binary is skipped gracefully (never a crash), so
+    the platform installs and runs without any of them present.
+    """
+
+    model_config = SettingsConfigDict(env_prefix="RECON_ACTIVE_RECON__")
+
+    enabled: bool = False
+    # Second safety gate: explicit authorization to run intrusive/active scans.
+    authorized: bool = False
+    # Optional subset of tool names to run (empty ⇒ all available default tools).
+    tools: list[str] = Field(default_factory=list)
+    # Per-tool execution controls.
+    timeout_seconds: float = 120.0
+    retries: int = 0
+    # Cap stored stdout/stderr so a chatty tool can't blow up memory / reports.
+    max_output_bytes: int = 1_000_000
+    # Wordlist path for content-discovery tools (ffuf / dirsearch). When empty,
+    # those tools are skipped with a clear note rather than guessing a list.
+    wordlist: str = ""
+    # Optional nuclei severity filter (e.g. "low,medium,high,critical").
+    nuclei_severity: str = ""
+    # Optional shared rate limit (requests/sec) for tools that accept one.
+    rate_limit: int = 0
+
+
 class Settings(BaseSettings):
     """Root settings object — the single source of truth for configuration."""
 
@@ -154,6 +189,7 @@ class Settings(BaseSettings):
     browser: BrowserSettings = Field(default_factory=BrowserSettings)
     vision: VisionSettings = Field(default_factory=VisionSettings)
     desktop: DesktopSettings = Field(default_factory=DesktopSettings)
+    active_recon: ActiveReconSettings = Field(default_factory=ActiveReconSettings)
 
     # Engagement guardrail: when true, targets must pass the authorization gate.
     authorized_only: bool = True

@@ -23,6 +23,7 @@ class AgentRole(StrEnum):
     VISION = "vision"
     VERIFICATION = "verification"
     DESKTOP = "desktop"
+    ACTIVE_RECON = "active_recon"
     NETWORK = "network"
     API = "api"
     HUMAN = "human"
@@ -110,6 +111,11 @@ class AssetType(StrEnum):
     # ``attributes["action_type"]``, mirroring the HEADER / VISUAL_ELEMENT convention.
     WINDOW = "window"
     DESKTOP_ACTION = "desktop_action"
+    # Active-recon assets (Phase 5 — external tool plugins). SERVICE is an
+    # open port/service (naabu/nmap); VULNERABILITY is a tool-reported issue
+    # (e.g. a nuclei match) carrying its severity in ``attributes["severity"]``.
+    SERVICE = "service"
+    VULNERABILITY = "vulnerability"
 
 
 class RelationType(StrEnum):
@@ -123,6 +129,7 @@ class RelationType(StrEnum):
     ISSUED_FOR = "issued_for"
     CONTAINS = "contains"
     DEPICTS = "depicts"  # a screenshot depicts a page / URL
+    AFFECTS = "affects"  # a vulnerability affects an asset (Phase 5 — active recon)
 
 
 class WorkflowType(StrEnum):

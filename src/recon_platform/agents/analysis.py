@@ -29,6 +29,8 @@ _SYSTEM = (
 SOURCE_VISION = "vision"
 #: Observer tag for desktop-derived findings.
 SOURCE_DESKTOP = "desktop"
+#: Observer tag for active-recon (external tool) findings.
+SOURCE_ACTIVE = "active-recon"
 
 
 class AnalysisAgent(BaseAgent):
@@ -60,6 +62,8 @@ class AnalysisAgent(BaseAgent):
         findings += _stamp(self._sensitive_pages(), [SOURCE_VISION])
         findings += _stamp(self._visual_capture(), [SOURCE_VISION])
         findings += _stamp(self._desktop_automation(), [SOURCE_DESKTOP])
+        findings += _stamp(self._active_recon_vulnerabilities(), [SOURCE_ACTIVE])
+        findings += _stamp(self._active_recon_surface(), [SOURCE_ACTIVE])
 
         findings.sort(key=lambda f: f.severity.rank, reverse=True)
 
@@ -642,6 +646,99 @@ class AnalysisAgent(BaseAgent):
                     "required by the engagement."
                 ),
                 confidence=0.9,
+            )
+        ]
+
+    # -- active-recon rules (Phase 5) --------------------------------------
+    def _active_recon_vulnerabilities(self) -> list[Finding]:
+        """Turn tool-reported vulnerabilities (e.g. nuclei) into ranked findings."""
+        vulns = self.graph.assets(AssetType.VULNERABILITY)
+        if not vulns:
+            return []
+        findings: list[Finding] = []
+        for v in vulns[:100]:
+            sev_name = str(v.attributes.get("severity", "info")).lower()
+            try:
+                severity = Severity(sev_name)
+            except ValueError:
+                severity = Severity.INFO
+            matched = str(v.attributes.get("matched_at", ""))
+            tool = str(v.attributes.get("via", "active-recon"))
+            findings.append(
+                Finding(
+                    title=f"{str(v.attributes.get('name', v.value))} ({tool})",
+                    description=(
+                        f"{tool} reported a {sev_name}-severity issue"
+                        + (f" at {matched}" if matched else "")
+                        + ". Validate and remediate per the referenced template."
+                    ),
+                    severity=severity,
+                    category="vulnerability",
+                    asset_keys=[v.key],
+                    evidence=[
+                        Evidence(
+                            label=str(v.attributes.get("template", "match")),
+                            detail=matched or str(v.value),
+                            data={"severity": sev_name},
+                        )
+                    ],
+                    recommendation=(
+                        "Confirm the finding, then patch or mitigate the affected "
+                        "component; suppress false positives in the tool config."
+                    ),
+                    references={"tool": tool},
+                    confidence=0.7,
+                )
+            )
+        return findings
+
+    def _active_recon_surface(self) -> list[Finding]:
+        """Informational summary of the surface uncovered by the active tools."""
+        services = [
+            a
+            for a in (self.graph.assets(AssetType.SERVICE) + self.graph.assets(AssetType.PORT))
+            if str(a.attributes.get("via")) in {"naabu", "nmap"}
+        ]
+        live = [
+            a for a in self.graph.assets(AssetType.URL) if a.attributes.get("via") == "httpx"
+        ]
+        endpoints = [
+            a
+            for a in self.graph.assets(AssetType.ENDPOINT)
+            if str(a.attributes.get("via")) in {"katana", "gau", "dirsearch", "ffuf"}
+        ]
+        subs = [
+            a
+            for a in self.graph.assets(AssetType.SUBDOMAIN)
+            if a.source in {"subfinder", "amass"}
+        ]
+        if not (services or live or endpoints or subs):
+            return []
+        evidence: list[Evidence] = []
+        evidence += [Evidence(label="service", detail=s.value) for s in services[:20]]
+        evidence += [Evidence(label="live", detail=u.value) for u in live[:20]]
+        evidence += [Evidence(label="endpoint", detail=e.value) for e in endpoints[:20]]
+        return [
+            Finding(
+                title=(
+                    f"Active recon surface ({len(services)} service(s), "
+                    f"{len(live)} live host(s), {len(endpoints)} endpoint(s), "
+                    f"{len(subs)} subdomain(s))"
+                ),
+                description=(
+                    "External active-recon tools enumerated the live attack surface "
+                    "(open services, responsive hosts, discovered endpoints, and "
+                    "subdomains). Review for unintended exposure."
+                ),
+                severity=Severity.INFO,
+                category="attack-surface",
+                asset_keys=[a.key for a in (services + live + endpoints + subs)],
+                evidence=evidence,
+                recommendation=(
+                    "Confirm each exposed service/endpoint is intended and hardened; "
+                    "decommission anything unexpected."
+                ),
+                confidence=0.85,
             )
         ]
 

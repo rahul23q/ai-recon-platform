@@ -108,6 +108,26 @@ def build_container(settings: Settings | None = None) -> Container:
 
         manager.register(DesktopPlugin(build_desktop_modules(), _desktop_ctx_factory))
 
+    # Active-recon tools register only when active recon is enabled. The tools are
+    # external binaries discovered on PATH (never imported), so registration pulls
+    # in no dependencies; a missing binary just reports skipped at run time.
+    if settings.active_recon.enabled:
+        from recon_platform.active_recon.base import ActiveToolContext
+        from recon_platform.active_recon.runner import ToolRunner
+        from recon_platform.active_recon.tools import build_active_tools
+        from recon_platform.plugins.active_recon import ActiveReconPlugin
+
+        a_target = settings.authorized_targets[0] if settings.authorized_targets else ""
+        a_runner = ToolRunner(
+            default_timeout=settings.active_recon.timeout_seconds,
+            max_output_bytes=settings.active_recon.max_output_bytes,
+        )
+
+        def _active_ctx_factory() -> ActiveToolContext:
+            return ActiveToolContext(a_target, a_runner, settings)
+
+        manager.register(ActiveReconPlugin(build_active_tools(), _active_ctx_factory))
+
     container.register_instance(PluginManager, manager)
 
     return container

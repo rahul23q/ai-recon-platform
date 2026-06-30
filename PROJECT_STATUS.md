@@ -6,11 +6,45 @@
 | | |
 |---|---|
 | **Project** | recon-platform — AI-powered Web App Security Reconnaissance |
-| **Current version** | `0.4.0` |
-| **Current phase** | **Phase 4 — Desktop Automation Agent ✅ Completed** |
-| **Next milestone** | **Phase 5 — Active Recon & Tool Plugins** |
+| **Current version** | `0.5.0` |
+| **Current phase** | **Phase 5 — Active Recon & Tool Plugins ✅ Completed** |
+| **Next milestone** | **Phase 6 — Network Agent** |
 | **Last updated** | 2026-06-30 |
-| **Quality gates** | ✅ `ruff` clean; `pytest` 57/58 (all 11 new desktop tests green). One **pre-existing** verification test (`test_agreement_missing_reported_as_verified`) fails on HEAD, unrelated to Phase 4. |
+| **Quality gates** | ✅ `ruff check` clean; `pytest` 68/69 (all 22 new active-recon tests green). One **pre-existing** verification test (`test_agreement_missing_reported_as_verified`) fails on HEAD, unrelated to Phase 5 — see *Known issues* below. |
+
+---
+
+## ⚠️ Known issues
+
+### `test_agreement_missing_reported_as_verified` (pre-existing, unrelated to Phase 5)
+
+`tests/test_verification.py::test_agreement_missing_reported_as_verified` fails on
+`main` and has done so since before Phase 4. **Verified unrelated to Phase 5:** the
+test fails identically with all Phase-5 changes stashed, and Phase 5 touches none
+of the verification path (`agents/verification.py`, `verification/headers.py`,
+`agents/analysis.py::_missing_security_headers`).
+
+**Root cause (Phase 1 ↔ Phase 3.1 interaction).** The test seeds the graph with
+identical `HEADER` assets from *both* the passive source (`http_headers`) and the
+browser source (`network_capture`) — every header value is `"x"`, with only CSP
+absent from both.  `InMemoryKnowledgeGraph.add_asset`
+(`knowledge_graph/graph.py`) dedupes assets by their stable `type:value` key, so
+the two sources' identical headers collapse into a **single** asset that keeps
+only the first-added `source` (`http_headers`). `collect_header_maps`
+(`verification/headers.py`) then derives an **empty browser map**, so
+`browser_observed` is `False`; CSP is graded `LIKELY`-missing instead of
+`VERIFIED`-missing, and no "verified missing" finding is produced — the assertion
+`assert verified_missing` then fails. (The pure-logic unit tests pass because they
+call `compute_header_verifications` directly, bypassing the lossy graph dedup.)
+
+**Why not fixed here.** The only correct fix is to make the central knowledge-graph
+merge preserve *multiple observation sources* for an identical-value asset (e.g.
+union sources on merge). That changes Phase-1 core dedup semantics every layer
+depends on (attribute precedence, confidence selection, serialization, report
+output) and warrants its own reviewed change with dedicated tests — out of scope
+for the Phase-5 milestone, and explicitly avoided to keep this change small and
+safe. Tracked for the Phase 15 (Analysis & Correlation Intelligence) /
+correlation work, where multi-source asset provenance is the natural home.
 
 ---
 
@@ -223,14 +257,58 @@ The pipeline is now Planner → Recon → Browser → Vision → Verification �
 
 ---
 
-## ⏭️ Next milestone — Phase 5: Active Recon & Tool Plugins
+## ✅ Phase 5 — Active Recon & Tool Plugins (Completed)
 
-Integrate external tools as first-class plugins (httpx, subfinder, naabu, katana,
-gau, amass, dirsearch, ffuf, nuclei, nmap) and add the active-recon workflow
-gated by explicit authorization and `NETWORK_ACTIVE` permissions. See
-[ROADMAP.md](ROADMAP.md) for the full phase plan.
+Added an **Active-Recon agent** integrating ten best-of-breed external security
+tools as first-class plugins, behind the existing `Agent` Protocol and
+orchestrator with **zero rewrites** of earlier layers. Opt-in and off by default,
+behind a *two-key* authorization posture, and **intrusive** by nature. The
+pipeline is now Planner → Recon → Browser → Vision → Verification → Desktop →
+**Active Recon** → Analysis → Reporting.
 
-**Entry criteria:** Phase 4 green (met). **Do not** restart earlier phases or
+### Implemented features
+
+- **`active_recon/` infrastructure** mirroring `recon/` / `desktop/`: an
+  `ExternalTool` contract (declare a binary, build a command line, parse stdout
+  into the common `Asset` / `Relation` models), a shared async `ToolRunner`
+  (timeout / retries / cancellation / output capture in one place, killing the
+  child on expiry or abort), a normalized `ToolExecution` record, and an
+  import-free `binary_available` PATH probe. Binaries are discovered on `PATH` and
+  **never imported**, so any not installed are skipped cleanly and the platform
+  installs and runs without them.
+- **Ten tool wrappers** + a `build_active_tools` factory / `ACTIVE_TOOLS` map:
+  httpx, subfinder, amass, naabu, nmap, katana, gau, dirsearch, ffuf, nuclei —
+  each normalizing to `URL` / `TECHNOLOGY` / `SUBDOMAIN` / `PORT` / `SERVICE` /
+  `ENDPOINT` / `VULNERABILITY` assets and `SUBDOMAIN_OF` / `EXPOSES` / `AFFECTS`
+  relations. Parsers are defensive (unknown keys / blank lines / partial output
+  ignored, never raised).
+- **Two-key safety**: `enabled` turns the agent on; `authorized` is a separate
+  explicit acknowledgment of permission to actively scan. Tools run only when
+  **both** are set **and** the target passes the engagement authorization gate;
+  any other state records a clean skip and returns empty.
+- **`ActiveReconAgent`** runs the configured tool set, merges results into the
+  knowledge graph, records a trace per tool, stores each execution in episodic
+  memory, and emits `active.*` A2A events.
+- **Orchestration**: an independent `active_recon` step (sequential + LangGraph
+  node) between desktop and analysis — the Planner's 3-task plan is untouched.
+- **Analysis & reporting**: additive vulnerability + attack-surface rules and an
+  "Active Reconnaissance" report section (open services + reported vulnerabilities
+  grouped by severity).
+- **Surfaces**: `ActiveReconPlugin` in the MCP catalogue (registered when
+  enabled), `recon passive-recon --active`, `recon active-recon <target>`, an API
+  `active` flag, and `RECON_ACTIVE_RECON__*` settings.
+- **Quality**: 22 new hermetic active-recon tests (no real binaries / subprocess
+  / network); `ruff check` clean; default offline run verified unchanged.
+
+---
+
+## ⏭️ Next milestone — Phase 6: Network Agent
+
+Deep analysis of requests/responses: header hygiene, JWT inspection, GraphQL and
+REST traffic, and WebSocket message review, correlating network observations into
+findings. See [ROADMAP.md](ROADMAP.md) for the full phase plan.
+
+**Entry criteria:** Phase 5 green (met). **Do not** restart earlier phases or
 regenerate completed code — extend via the existing seams.
 
 ---
@@ -239,6 +317,18 @@ regenerate completed code — extend via the existing seams.
 
 Add dated entries here as work proceeds. Newest first.
 
+- **2026-06-30** — Phase 5 (Active Recon & Tool Plugins) completed and released
+  as `v0.5.0`. An Active-Recon agent integrates ten external security tools
+  (httpx, subfinder, amass, naabu, nmap, katana, gau, dirsearch, ffuf, nuclei)
+  behind a provider-independent `ExternalTool` framework + shared async
+  `ToolRunner`; binaries are discovered on `PATH` and never imported, so any not
+  installed are skipped cleanly. New `SERVICE` / `VULNERABILITY` assets and the
+  `AFFECTS` relation feed tool findings and the live attack surface into the
+  report's "Active Reconnaissance" section. Intrusive and off by default behind a
+  two-key (`enabled` + `authorized`) posture plus the engagement gate. Pipeline is
+  now Planner → Recon → Browser → Vision → Verification → Desktop → Active Recon →
+  Analysis → Reporting. 22 new hermetic tests, `ruff check` clean. (The same
+  pre-existing verification test still fails on HEAD, unrelated to this work.)
 - **2026-06-30** — Phase 4 (Desktop Automation Agent) completed and released as
   `v0.4.0`. Mouse / keyboard / windows / clipboard / screen capture / file
   dialogs behind a provider-independent backend seam, opt-in and off by default
