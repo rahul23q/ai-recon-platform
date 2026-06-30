@@ -22,6 +22,7 @@ class AgentRole(StrEnum):
     BROWSER = "browser"
     VISION = "vision"
     VERIFICATION = "verification"
+    DESKTOP = "desktop"
     NETWORK = "network"
     API = "api"
     HUMAN = "human"
@@ -102,6 +103,13 @@ class AssetType(StrEnum):
     VISUAL_ELEMENT = "visual_element"
     TEXT_REGION = "text_region"
     QR_CODE = "qr_code"
+    # Desktop / OS-automation assets (Phase 4 — Desktop agent). WINDOW is a
+    # discovered OS window; DESKTOP_ACTION records one performed (or, in safe
+    # mode, planned) interaction — its concrete kind (mouse_move / click / type /
+    # hotkey / clipboard / screen_capture / file_dialog) lives in
+    # ``attributes["action_type"]``, mirroring the HEADER / VISUAL_ELEMENT convention.
+    WINDOW = "window"
+    DESKTOP_ACTION = "desktop_action"
 
 
 class RelationType(StrEnum):
@@ -142,3 +150,6 @@ class ToolPermission(StrEnum):
     FILESYSTEM_WRITE = "filesystem:write"
     BROWSER = "browser"
     SUBPROCESS = "subprocess"
+    # Synthetic mouse/keyboard/clipboard control of the local desktop (Phase 4).
+    # Strongly gated: requires desktop.enabled AND desktop.allow_input.
+    DESKTOP = "desktop"

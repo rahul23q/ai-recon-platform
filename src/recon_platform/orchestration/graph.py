@@ -19,6 +19,7 @@ from typing import Any
 from recon_platform.agents import (
     AnalysisAgent,
     BrowserAgent,
+    DesktopAgent,
     PlannerAgent,
     ReconAgent,
     ReportingAgent,
@@ -60,6 +61,9 @@ class ReconOrchestrator:
             self._bus, self._memory, self._llm, self._graph, self._settings
         )
         self._verification = VerificationAgent(
+            self._bus, self._memory, self._llm, self._graph, self._settings
+        )
+        self._desktop = DesktopAgent(
             self._bus, self._memory, self._llm, self._graph, self._settings
         )
         self._analysis = AnalysisAgent(self._bus, self._memory, self._llm, self._graph)
@@ -148,6 +152,22 @@ class ReconOrchestrator:
         await self._emit("step", name="verification")
         state.verifications = await self._verification.verify(state.engagement)
 
+    async def _step_desktop(self, state: RunState) -> None:
+        """Optional desktop-agent step (after verification, before analysis).
+
+        Like the browser / vision steps it runs independently of the Planner's
+        task graph and no-ops cleanly when desktop automation is disabled or no
+        desktop backend is installed. It runs after Vision/Verification so it can
+        act "by sight" on the Vision agent's detected on-screen elements; the
+        assets flow through the shared knowledge graph.
+        """
+        if not self._settings.desktop.enabled:
+            return
+        await self._emit("step", name="desktop")
+        assets, relations = await self._desktop.run_desktop(state.engagement)
+        state.assets += assets
+        state.relations += relations
+
     async def _step_analyze(self, state: RunState) -> None:
         await self._emit("step", name="analyze")
         # Extend (not replace): browser-derived findings coexist with recon ones.
@@ -195,6 +215,7 @@ class ReconOrchestrator:
         await self._step_browser(state)
         await self._step_vision(state)
         await self._step_verify(state)
+        await self._step_desktop(state)
         await self._step_analyze(state)
         await self._step_report(state)
 
@@ -234,6 +255,10 @@ class ReconOrchestrator:
             await self._step_verify(s["state"])
             return s
 
+        async def desktop_node(s: dict) -> dict:
+            await self._step_desktop(s["state"])
+            return s
+
         async def analyze_node(s: dict) -> dict:
             await self._step_analyze(s["state"])
             return s
@@ -248,6 +273,7 @@ class ReconOrchestrator:
         builder.add_node("browser", browser_node)
         builder.add_node("vision", vision_node)
         builder.add_node("verification", verify_node)
+        builder.add_node("desktop", desktop_node)
         builder.add_node("analyze", analyze_node)
         builder.add_node("report", report_node)
         builder.add_edge(START, "plan")
@@ -255,7 +281,8 @@ class ReconOrchestrator:
         builder.add_edge("recon", "browser")
         builder.add_edge("browser", "vision")
         builder.add_edge("vision", "verification")
-        builder.add_edge("verification", "analyze")
+        builder.add_edge("verification", "desktop")
+        builder.add_edge("desktop", "analyze")
         builder.add_edge("analyze", "report")
         builder.add_edge("report", END)
 

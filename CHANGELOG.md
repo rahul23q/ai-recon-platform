@@ -4,6 +4,73 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.4.0] — 2026-06-30
+
+### Phase 4 — Desktop Automation Agent (Completed)
+
+A **Desktop agent** for OS automation (mouse, keyboard, windows, clipboard,
+screen capture, and file-upload/download dialogs), wired behind the existing
+`Agent` Protocol and orchestrator without rewriting any earlier layer. Opt-in and
+off by default; behind a *two-key* safety posture and degrading to a clean no-op
+when disabled or when no desktop backend is installed. The pipeline is now
+Planner → Recon → Browser → Vision → Verification → **Desktop** → Analysis →
+Reporting.
+
+#### Added
+
+- **Desktop infrastructure** (`desktop/`): provider-independent `DesktopBackend`
+  (a `null` recorder that is always available + a lazy `pyautogui` real-input
+  backend, with a name-based factory that falls back to `null`), a
+  `DesktopManager` (window discovery/management via `pygetwindow`, clipboard via
+  `pyperclip` with an in-process buffer fallback, and screen capture via
+  pyautogui / `mss` / Pillow), and a `DesktopSession` action lifecycle wrapper
+  that records every interaction and enforces the input safety gate.
+- **Two-key safety posture**: `RECON_DESKTOP__ENABLED` turns on read-only
+  observation (windows, screen capture, clipboard read); synthetic mouse/keyboard
+  input additionally requires `RECON_DESKTOP__ALLOW_INPUT`. In the default
+  (input-disabled) mode, interactions are recorded as **planned (dry-run)**
+  `DESKTOP_ACTION` assets so a run is fully auditable without ever moving the
+  real cursor.
+- **Desktop modules**: `window_discovery` (→ `WINDOW`), `screen_capture` (→
+  `SCREENSHOT` tagged `via=desktop`), `clipboard` (→ `DESKTOP_ACTION`), and
+  `ui_interaction` — which **reuses the Vision agent's detected on-screen
+  elements** (`VISUAL_ELEMENT` bounding boxes) to click "by sight", linking each
+  action back to the element it acted on.
+- **Asset types**: `WINDOW` and `DESKTOP_ACTION` (its concrete kind —
+  mouse_move / click / type / hotkey / clipboard / screen_capture / file_dialog —
+  in `attributes["action_type"]`); `AgentRole.DESKTOP`; `ToolPermission.DESKTOP`.
+- **`DesktopAgent`**: gathers Vision elements from the graph, drives the session,
+  populates the graph, records a trace per module, and emits `desktop.started` /
+  `desktop.window` / `desktop.capture` / `desktop.clipboard` / `desktop.action` /
+  `desktop.completed` A2A events.
+- **Orchestration**: an independent `desktop` step between verification and
+  analysis (sequential path + LangGraph node) that runs only when enabled; the
+  Planner's 3-task plan is untouched.
+- **Analysis & reporting**: an additive desktop-automation summary finding
+  (windows observed + interactions, flagging any real input) and a **Desktop
+  Automation** report section.
+- **Tooling & surfaces**: `DesktopPlugin` (`plugins/desktop.py`) exposes the
+  desktop modules in the MCP catalogue when enabled; `recon passive-recon
+  --desktop` and a new `recon desktop <target>` command; a `desktop` flag on the
+  API `RunRequest`; `RECON_DESKTOP__*` settings; a `desktop` install extra.
+- **Tests** (`tests/test_desktop.py`): hermetic — no real mouse/keyboard/screen,
+  no GUI libraries. Backend factory fallback, the input safety gate (no synthetic
+  input when `allow_input=False`, input sent when true), clipboard buffer
+  fallback, element-centre maths, and the disabled-by-default / enabled-stubbed /
+  graceful-degradation pipeline cases (11 tests).
+
+#### Unchanged
+
+- Phase 1 / 2 / 3 (+ verification) functionality is intact; all prior tests
+  behave as before. The Browser / Vision / Verification agents are unmodified —
+  the desktop stage only *reads* their assets (Vision elements) and adds its own.
+
+> **Roadmap note.** Desktop automation (originally sketched as Phase 18) was
+> prioritized and delivered here as Phase 4 at the maintainer's direction; the
+> roadmap has been renumbered accordingly.
+
+[0.4.0]: https://github.com/OWNER/recon-platform/releases/tag/v0.4.0
+
 ## [0.3.1] — 2026-06-30
 
 ### Cross-source verification pipeline (HTTP security-header false positives)

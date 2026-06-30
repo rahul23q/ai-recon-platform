@@ -134,6 +134,35 @@ class MarkdownRenderer:
                 lines.append(f"**Detected elements:** {summary}")
                 lines.append("")
 
+        # Desktop automation (Phase 4) — only when the desktop agent ran.
+        windows = [a for a in bundle.assets if a.type == AssetType.WINDOW]
+        actions = [a for a in bundle.assets if a.type == AssetType.DESKTOP_ACTION]
+        if windows or actions:
+            lines.append("## Desktop Automation")
+            lines.append("")
+            if windows:
+                lines.append(f"**Windows discovered ({len(windows)}):**")
+                for w in windows[:30]:
+                    active = " · active" if w.attributes.get("active") else ""
+                    lines.append(f"- `{w.value}`{active}")
+                lines.append("")
+            if actions:
+                by_kind: dict[str, int] = {}
+                for a in actions:
+                    kind = str(a.attributes.get("action_type", "action"))
+                    by_kind[kind] = by_kind.get(kind, 0) + 1
+                summary = ", ".join(f"{k}: {v}" for k, v in sorted(by_kind.items()))
+                lines.append(f"**Interactions ({len(actions)}):** {summary}")
+                lines.append("")
+                for a in actions[:30]:
+                    state = (
+                        "performed"
+                        if str(a.attributes.get("performed")) == "True"
+                        else "planned (dry-run)"
+                    )
+                    lines.append(f"- [{state}] {a.value}")
+                lines.append("")
+
         # Appendix: reasoning trace
         lines.append("## Appendix — Reasoning Trace")
         lines.append("")

@@ -42,15 +42,17 @@ def _force_utf8_streams() -> None:
 _force_utf8_streams()
 
 
-def _settings_for(browser: bool, vision: bool = False) -> Settings:
-    """Build a fresh Settings with the browser / vision agents toggled.
+def _settings_for(browser: bool, vision: bool = False, desktop: bool = False) -> Settings:
+    """Build a fresh Settings with the browser / vision / desktop agents toggled.
 
     Vision analyzes the Browser agent's screenshots, so enabling vision implies
-    enabling the browser too.
+    enabling the browser too. The desktop agent is independent, but it can act on
+    the Vision agent's detected on-screen elements when both are enabled.
     """
     settings = Settings()
     settings.browser.enabled = browser or vision
     settings.vision.enabled = vision
+    settings.desktop.enabled = desktop
     return settings
 
 
@@ -69,19 +71,28 @@ async def _execute(
     out: pathlib.Path | None,
     browser: bool = False,
     vision: bool = False,
+    desktop: bool = False,
 ) -> int:
-    # An explicit Settings (built only when needed) lets the browser / vision
-    # flags flip the otherwise-default-off agents without touching the cached
-    # process-wide settings singleton.
+    # An explicit Settings (built only when needed) lets the browser / vision /
+    # desktop flags flip the otherwise-default-off agents without touching the
+    # cached process-wide settings singleton.
     container = (
-        build_container(_settings_for(browser, vision))
-        if (browser or vision)
+        build_container(_settings_for(browser, vision, desktop))
+        if (browser or vision or desktop)
         else build_container()
     )
     orch = ReconOrchestrator(container)
     engagement = EngagementContext(target=target, workflow=WorkflowType.PASSIVE_RECON)
 
-    label = "Vision recon" if vision else "Browser recon" if browser else "Passive recon"
+    label = (
+        "Desktop recon"
+        if desktop
+        else "Vision recon"
+        if vision
+        else "Browser recon"
+        if browser
+        else "Passive recon"
+    )
     console.rule(f"[bold]{label} — {target}")
 
     run_task = asyncio.create_task(orch.run(engagement))
@@ -145,9 +156,17 @@ def passive_recon(
         help="Also run the Vision agent over screenshots (implies --browser; "
         "requires the 'vision' extra).",
     ),
+    desktop: bool = typer.Option(
+        False,
+        "--desktop/--no-desktop",
+        help="Also run the Desktop agent (windows / capture / clipboard; gated "
+        "input). Requires the 'desktop' extra; off by default.",
+    ),
 ) -> None:
     """Run the passive reconnaissance workflow end-to-end."""
-    code = asyncio.run(_execute(target, report_format, out, browser=browser, vision=vision))
+    code = asyncio.run(
+        _execute(target, report_format, out, browser=browser, vision=vision, desktop=desktop)
+    )
     raise typer.Exit(code)
 
 
@@ -188,6 +207,36 @@ def browse(
     chromium``. Without it, the browser step degrades to a clean no-op.
     """
     code = asyncio.run(_execute(target, report_format, out, browser=True))
+    raise typer.Exit(code)
+
+
+@app.command("desktop")
+def desktop(
+    target: str = typer.Argument(..., help="Authorized domain or host for the engagement."),
+    report_format: str = typer.Option(
+        "markdown", "--report-format", "-f", help="markdown | html | json"
+    ),
+    out: pathlib.Path | None = typer.Option(
+        None, "--out", "-o", help="Write the report to this file instead of stdout."
+    ),
+    with_vision: bool = typer.Option(
+        False,
+        "--with-vision/--no-with-vision",
+        help="Also run Browser + Vision so the Desktop agent can act on detected "
+        "on-screen elements (requires the 'browser,vision' extras).",
+    ),
+) -> None:
+    """Run the workflow with the Desktop agent enabled.
+
+    Install the extra first: ``pip install '.[desktop]'``. Without it (or without
+    a display server), the desktop step degrades to a clean no-op. Synthetic
+    mouse/keyboard input stays disabled unless ``RECON_DESKTOP__ALLOW_INPUT=1`` is
+    set — by default the agent only observes (windows, screen capture, clipboard)
+    and records *planned* interactions.
+    """
+    code = asyncio.run(
+        _execute(target, report_format, out, vision=with_vision, desktop=True)
+    )
     raise typer.Exit(code)
 
 

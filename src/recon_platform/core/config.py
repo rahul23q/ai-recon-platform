@@ -100,6 +100,43 @@ class VisionSettings(BaseSettings):
     annotate_dir: str = "reports/vision"
 
 
+class DesktopSettings(BaseSettings):
+    """Desktop-agent configuration (mouse / keyboard / windows / clipboard).
+
+    **Off by default** and behind a *two-key* safety posture so the platform
+    stays passive: ``enabled`` turns the agent on for read-only observation
+    (window discovery, screen capture, clipboard read); synthetic input (mouse
+    movement/clicks, keystrokes, file-dialog automation) additionally requires
+    ``allow_input=True``. When disabled or when no desktop backend is importable,
+    the desktop step degrades to a clean no-op.
+
+    The input backend is provider-independent and resolved by name: ``pyautogui``
+    drives real input (lazy-imported, requires the ``desktop`` extra), ``null``
+    records intended actions without performing them. An unknown / uninstalled
+    backend falls back to ``null`` so a run never crashes.
+    """
+
+    model_config = SettingsConfigDict(env_prefix="RECON_DESKTOP__")
+
+    enabled: bool = False
+    # Second safety gate: even when enabled, real mouse/keyboard input only fires
+    # when this is true. Off ⇒ interactions are recorded as planned (dry-run).
+    allow_input: bool = False
+    # Input backend: pyautogui | null. Unknown/unavailable falls back to null.
+    backend: str = "pyautogui"
+    # Screen-capture evidence of the desktop (best-effort; mss / Pillow).
+    screenshot: bool = True
+    screenshot_dir: str = "reports/desktop"
+    # Observation / interaction budgets.
+    max_windows: int = 50
+    max_actions: int = 25
+    # Cursor move duration (seconds) for synthetic mouse movement.
+    move_duration: float = 0.0
+    # Minimum confidence a Vision-detected element needs before the agent will
+    # plan a click on it (reuses the Vision element confidences).
+    min_element_confidence: float = 0.5
+
+
 class Settings(BaseSettings):
     """Root settings object — the single source of truth for configuration."""
 
@@ -116,6 +153,7 @@ class Settings(BaseSettings):
     api: APISettings = Field(default_factory=APISettings)
     browser: BrowserSettings = Field(default_factory=BrowserSettings)
     vision: VisionSettings = Field(default_factory=VisionSettings)
+    desktop: DesktopSettings = Field(default_factory=DesktopSettings)
 
     # Engagement guardrail: when true, targets must pass the authorization gate.
     authorized_only: bool = True

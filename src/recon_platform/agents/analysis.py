@@ -27,6 +27,8 @@ _SYSTEM = (
 #: Observer tag for vision-derived findings (passive/browser tags live in
 #: ``verification.headers``).
 SOURCE_VISION = "vision"
+#: Observer tag for desktop-derived findings.
+SOURCE_DESKTOP = "desktop"
 
 
 class AnalysisAgent(BaseAgent):
@@ -57,6 +59,7 @@ class AnalysisAgent(BaseAgent):
         findings += _stamp(self._exposed_secrets_in_text(), [SOURCE_VISION])
         findings += _stamp(self._sensitive_pages(), [SOURCE_VISION])
         findings += _stamp(self._visual_capture(), [SOURCE_VISION])
+        findings += _stamp(self._desktop_automation(), [SOURCE_DESKTOP])
 
         findings.sort(key=lambda f: f.severity.rank, reverse=True)
 
@@ -570,6 +573,74 @@ class AnalysisAgent(BaseAgent):
                 asset_keys=[s.key for s in screenshots],
                 evidence=evidence,
                 recommendation="Review screenshots and detected elements for exposed content.",
+                confidence=0.9,
+            )
+        ]
+
+    # -- desktop rules (Phase 4) -------------------------------------------
+    def _desktop_automation(self) -> list[Finding]:
+        """Informational summary of desktop observation + interaction.
+
+        Surfaces what the Desktop agent observed (open windows) and did (mouse /
+        keyboard / clipboard / file-dialog actions). Actions actually *performed*
+        (real synthetic input) are flagged so the report distinguishes them from
+        the safe-mode planned (dry-run) interactions.
+        """
+        windows = self.graph.assets(AssetType.WINDOW)
+        actions = self.graph.assets(AssetType.DESKTOP_ACTION)
+        if not windows and not actions:
+            return []
+
+        performed = [a for a in actions if str(a.attributes.get("performed")) == "True"]
+        by_type: dict[str, int] = {}
+        for a in actions:
+            kind = str(a.attributes.get("action_type", "action"))
+            by_type[kind] = by_type.get(kind, 0) + 1
+
+        evidence: list[Evidence] = []
+        for w in windows[:15]:
+            evidence.append(
+                Evidence(
+                    label="window",
+                    detail=str(w.value),
+                    data={"active": w.attributes.get("active", False)},
+                )
+            )
+        for a in actions[:15]:
+            evidence.append(
+                Evidence(
+                    label=str(a.attributes.get("action_type", "action")),
+                    detail=str(a.value),
+                    data={"performed": a.attributes.get("performed", "")},
+                )
+            )
+
+        summary = ", ".join(f"{k}: {v}" for k, v in sorted(by_type.items())) or "none"
+        description = (
+            f"The Desktop agent observed {len(windows)} window(s) and recorded "
+            f"{len(actions)} interaction(s) ({summary}). "
+            + (
+                f"{len(performed)} action(s) sent real input."
+                if performed
+                else "All interactions were planned (dry-run); no real input was sent."
+            )
+        )
+        return [
+            Finding(
+                title=(
+                    f"Desktop automation ({len(windows)} window(s), "
+                    f"{len(actions)} action(s))"
+                ),
+                description=description,
+                severity=Severity.INFO,
+                category="recon",
+                asset_keys=[a.key for a in (windows + actions)],
+                evidence=evidence,
+                recommendation=(
+                    "Review desktop interactions for authorization scope; keep "
+                    "synthetic input disabled (allow_input=False) unless explicitly "
+                    "required by the engagement."
+                ),
                 confidence=0.9,
             )
         ]

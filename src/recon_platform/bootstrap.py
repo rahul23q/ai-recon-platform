@@ -91,6 +91,23 @@ def build_container(settings: Settings | None = None) -> Container:
 
         manager.register(VisionPlugin(build_vision_modules(), _vision_ctx_factory))
 
+    # Desktop modules register only when desktop automation is enabled, keeping
+    # the optional desktop (pyautogui/…) extra unimported on default runs.
+    if settings.desktop.enabled:
+        from recon_platform.desktop.base import DesktopContext
+        from recon_platform.desktop.modules import build_desktop_modules
+        from recon_platform.desktop.session import DesktopSession
+        from recon_platform.plugins.desktop import DesktopPlugin
+
+        d_target = settings.authorized_targets[0] if settings.authorized_targets else ""
+
+        def _desktop_ctx_factory() -> DesktopContext:
+            # Cheap, import-free construction; the desktop backend loads lazily on
+            # first use inside the session.
+            return DesktopContext(d_target, DesktopSession(settings), settings)
+
+        manager.register(DesktopPlugin(build_desktop_modules(), _desktop_ctx_factory))
+
     container.register_instance(PluginManager, manager)
 
     return container

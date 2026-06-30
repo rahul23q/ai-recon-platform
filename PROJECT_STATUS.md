@@ -6,11 +6,11 @@
 | | |
 |---|---|
 | **Project** | recon-platform — AI-powered Web App Security Reconnaissance |
-| **Current version** | `0.3.1` |
-| **Current phase** | **Phase 3 — Vision Agent ✅ Completed** (+ cross-source verification) |
-| **Next milestone** | **Phase 4 — Active Recon & Tool Plugins** |
+| **Current version** | `0.4.0` |
+| **Current phase** | **Phase 4 — Desktop Automation Agent ✅ Completed** |
+| **Next milestone** | **Phase 5 — Active Recon & Tool Plugins** |
 | **Last updated** | 2026-06-30 |
-| **Quality gates** | ⏳ `ruff` + `pytest` to be run manually (Phase 1–3 last verified at 25/25; verification changes pending a local run) |
+| **Quality gates** | ✅ `ruff` clean; `pytest` 57/58 (all 11 new desktop tests green). One **pre-existing** verification test (`test_agreement_missing_reported_as_verified`) fails on HEAD, unrelated to Phase 4. |
 
 ---
 
@@ -177,14 +177,60 @@ Reporting**.
 
 ---
 
-## ⏭️ Next milestone — Phase 4: Active Recon & Tool Plugins
+## ✅ Phase 4 — Desktop Automation Agent (Completed)
+
+Added a **Desktop agent** for OS automation — mouse, keyboard, window discovery /
+management, clipboard, screen capture, and file-upload/download dialogs — behind
+the existing `Agent` Protocol and orchestrator, with **zero rewrites** of earlier
+layers. Opt-in and off by default, behind a *two-key* safety posture, and
+degrading to a clean no-op when disabled or when no desktop backend is installed.
+The pipeline is now Planner → Recon → Browser → Vision → Verification →
+**Desktop** → Analysis → Reporting.
+
+### Implemented features
+
+- **`desktop/` infrastructure** mirroring `vision/`: a provider-independent
+  `DesktopBackend` seam (`null` recorder + lazy `pyautogui` real-input backend +
+  name-based factory with `null` fallback), a `DesktopManager` (windows via
+  `pygetwindow`, clipboard via `pyperclip` with an in-process buffer fallback,
+  screen capture via pyautogui / `mss` / Pillow), and a `DesktopSession` action
+  lifecycle wrapper that records every interaction and enforces the input gate.
+- **Two-key safety**: `enabled` permits read-only observation; synthetic input
+  additionally requires `allow_input`. The default posture records **planned
+  (dry-run)** actions — it never moves the real cursor — so a run is auditable
+  with no GUI present. (Honours rule #7: passive by default; authorized only.)
+- **Desktop modules**: `window_discovery` (→ `WINDOW`), `screen_capture` (→
+  `SCREENSHOT` tagged `via=desktop`), `clipboard` (→ `DESKTOP_ACTION`), and
+  `ui_interaction`, which **reuses the Vision agent's detected on-screen
+  elements** (`VISUAL_ELEMENT` boxes) to click "by sight" and links each action
+  back to the element it acted on.
+- **`DesktopAgent`** drives the session, populates the graph, records a trace per
+  module, and emits `desktop.*` A2A events for the dashboard.
+- **Orchestration**: an independent `desktop` step (sequential + LangGraph node)
+  between verification and analysis — the Planner's 3-task plan is untouched.
+- **Analysis & reporting**: an additive desktop-automation summary finding and a
+  "Desktop Automation" report section (windows + interactions, flagging real
+  input vs. dry-run).
+- **Surfaces**: `DesktopPlugin` in the MCP catalogue (registered when enabled),
+  `recon passive-recon --desktop`, `recon desktop <target>`, an API `desktop`
+  flag, `RECON_DESKTOP__*` settings, and a `desktop` install extra.
+- **Quality**: 11 new hermetic desktop tests (no real input / GUI libs); ruff
+  clean; default offline run verified unchanged.
+
+> **Roadmap note.** Desktop automation (originally sketched as Phase 18) was
+> prioritized and delivered here as Phase 4 at the maintainer's direction; the
+> roadmap has been renumbered so Active Recon & Tool Plugins is now Phase 5.
+
+---
+
+## ⏭️ Next milestone — Phase 5: Active Recon & Tool Plugins
 
 Integrate external tools as first-class plugins (httpx, subfinder, naabu, katana,
 gau, amass, dirsearch, ffuf, nuclei, nmap) and add the active-recon workflow
 gated by explicit authorization and `NETWORK_ACTIVE` permissions. See
 [ROADMAP.md](ROADMAP.md) for the full phase plan.
 
-**Entry criteria:** Phase 3 green (met). **Do not** restart earlier phases or
+**Entry criteria:** Phase 4 green (met). **Do not** restart earlier phases or
 regenerate completed code — extend via the existing seams.
 
 ---
