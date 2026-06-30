@@ -11,18 +11,19 @@ generates professional reports.
 
 ---
 
-## Status — Phase 3 (Vision Agent) + cross-source verification
+## Status — Phase 4 (Desktop Automation Agent)
 
 This repository contains the **Clean-Architecture foundation** plus the working
 end-to-end workflow **Passive Recon → (Browser) → (Vision) → Verification →
-Analysis → Report**, driven by a multi-agent pipeline over a structured
-Agent-to-Agent (A2A) message bus, with optional LangGraph orchestration and
-Anthropic Claude reasoning. Phases 2–3 add opt-in **Browser** (Playwright + Chrome
-DevTools) and **Vision** (OCR + visual intelligence) agents behind the same
-`Agent` Protocol; both are off by default so the platform still runs fully
-offline. A **Verification** stage corroborates passive findings against the
-browser so results are graded Verified / Likely / Needs-Verification / False
-Positive instead of over-reported.
+(Desktop) → Analysis → Report**, driven by a multi-agent pipeline over a
+structured Agent-to-Agent (A2A) message bus, with optional LangGraph
+orchestration and Anthropic Claude reasoning. Phases 2–4 add opt-in **Browser**
+(Playwright + Chrome DevTools), **Vision** (OCR + visual intelligence) and
+**Desktop** (mouse / keyboard / windows / clipboard / screen capture) agents
+behind the same `Agent` Protocol; all are off by default so the platform still
+runs fully offline. A **Verification** stage corroborates passive findings
+against the browser so results are graded Verified / Likely / Needs-Verification
+/ False Positive instead of over-reported.
 
 It is designed to grow module-by-module (active recon, browser/vision agents,
 more plugins, the live dashboard) without changing the existing layers.
@@ -81,6 +82,14 @@ Agent     Agent         Agent           Agent         Agent            Graph Age
   API-docs), extracts on-screen text, emails, phones, URLs and secrets, and reads
   QR codes — emitting screenshot-backed findings and a Visual Intelligence report
   section.
+- **Desktop Agent** (Phase 4, opt-in): an OS-automation agent for scenarios
+  beyond the browser — window discovery/management, screen capture, clipboard,
+  and (gated) synthetic mouse/keyboard input including file-upload/download
+  dialogs. It reuses the Vision agent's detected on-screen elements to click "by
+  sight". Provider-independent input backend (`null` recorder + `pyautogui`),
+  behind a two-key safety posture: enabling it allows observation only, while
+  real input additionally requires `RECON_DESKTOP__ALLOW_INPUT`. Off by default
+  and degrades to a clean no-op without the `desktop` extra or a display.
 
 ---
 
@@ -138,6 +147,44 @@ uninstalled engine falls back to a null provider so a run never crashes. When no
 vision backend is installed at all, the vision step **degrades to a clean no-op**
 and records a skip trace. Annotated screenshots (bounding boxes) are written
 under `reports/vision/` (`RECON_VISION__ANNOTATE_DIR`).
+
+---
+
+## Desktop Agent (Phase 4)
+
+The Desktop Agent is **off by default** and behind a *two-key* safety posture, so
+the platform stays passive. Enabling it permits **read-only observation** (window
+discovery, screen capture, clipboard read); sending **real synthetic input**
+(mouse/keyboard, file dialogs) additionally requires `allow_input`. Until then,
+interactions are recorded as **planned (dry-run)** actions — fully auditable, with
+the cursor never moving.
+
+```bash
+pip install -e ".[desktop]"        # pyautogui + pygetwindow + pyperclip + mss
+
+# Observe-only desktop pass (windows / capture / clipboard; clicks are dry-run):
+recon desktop example.com
+
+# Let the Desktop agent act on Vision-detected on-screen elements:
+recon desktop example.com --with-vision        # implies browser + vision
+
+# Add desktop to a passive run:
+recon passive-recon example.com --desktop
+
+# Enable real input + via the environment / API:
+RECON_DESKTOP__ENABLED=1 RECON_DESKTOP__ALLOW_INPUT=1 recon tools   # lists desktop.* tools
+# API:  POST /runs {"target": "example.com", "desktop": true}
+```
+
+When no desktop backend is installed (or there is no display server), the desktop
+step **degrades to a clean no-op** and records a skip trace — the pipeline is
+unaffected. Desktop screenshots are written under `reports/desktop/`
+(`RECON_DESKTOP__SCREENSHOT_DIR`). The agent reuses the Vision agent's detected
+`VISUAL_ELEMENT` bounding boxes to click "by sight" rather than at hard-coded
+coordinates.
+
+> ⚠️ Synthetic input drives the *local* machine running the platform. Only enable
+> `allow_input` in an environment you control and are authorized to automate.
 
 ---
 
@@ -206,9 +253,10 @@ pytest
 
 1. ✅ Browser Agent (Playwright) with self-healing — **done (Phase 2)**.
 2. ✅ Vision Agent (OCR + visual intelligence) — **done (Phase 3)**.
-3. Active recon workflow + external tool plugins (httpx, subfinder, nuclei).
-4. Network/API agents (JWT, GraphQL, WebSocket inspection).
-5. Live dashboard UI, Redis/Postgres persistence, Celery distributed workers.
-6. Reporting: PDF/DOCX, OWASP/MITRE ATT&CK/CWE/CVSS mapping.
+3. ✅ Desktop Agent (mouse/keyboard/windows/clipboard, click-by-sight) — **done (Phase 4)**.
+4. Active recon workflow + external tool plugins (httpx, subfinder, nuclei).
+5. Network/API agents (JWT, GraphQL, WebSocket inspection).
+6. Live dashboard UI, Redis/Postgres persistence, Celery distributed workers.
+7. Reporting: PDF/DOCX, OWASP/MITRE ATT&CK/CWE/CVSS mapping.
 
 See `docs/` (to be added) and inline module docstrings for extension points.

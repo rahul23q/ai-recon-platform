@@ -239,6 +239,15 @@ regenerate completed code — extend via the existing seams.
 
 Add dated entries here as work proceeds. Newest first.
 
+- **2026-06-30** — Phase 4 (Desktop Automation Agent) completed and released as
+  `v0.4.0`. Mouse / keyboard / windows / clipboard / screen capture / file
+  dialogs behind a provider-independent backend seam, opt-in and off by default
+  with a two-key safety gate (observe-only unless `allow_input`); integrates with
+  the Vision agent to click detected on-screen elements "by sight". Pipeline is
+  now Planner → Recon → Browser → Vision → Verification → Desktop → Analysis →
+  Reporting. 11 new hermetic tests, ruff clean. Desktop was promoted from the
+  original Phase 18 slot at the maintainer's direction; the roadmap is renumbered.
+  (One pre-existing verification test fails on HEAD, unrelated to this work.)
 - **2026-06-30** — Cross-source verification pipeline added (`v0.3.1`): HTTP
   security-header false positives eliminated by corroborating passive HTTP with
   the Browser agent; findings now carry Verified / Likely / Needs-Verification /
