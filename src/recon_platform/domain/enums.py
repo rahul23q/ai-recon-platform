@@ -26,6 +26,7 @@ class AgentRole(StrEnum):
     ACTIVE_RECON = "active_recon"
     NETWORK = "network"
     API = "api"
+    JS_ANALYSIS = "js_analysis"
     HUMAN = "human"
 
 
@@ -131,6 +132,11 @@ class AssetType(StrEnum):
     API = "api"
     API_PARAMETER = "api_parameter"
     AUTH_SCHEME = "auth_scheme"
+    # JavaScript-analysis assets (Phase 8 — JS Analysis agent). SOURCE_MAP is a
+    # discovered ``.map`` / ``sourceMappingURL`` reference that can reconstruct
+    # original client-side source. Endpoints/secrets extracted from JS reuse the
+    # existing ENDPOINT / SECRET types (tagged ``attributes["via"]="js"``).
+    SOURCE_MAP = "source_map"
 
 
 class RelationType(StrEnum):

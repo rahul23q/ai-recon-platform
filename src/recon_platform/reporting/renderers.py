@@ -269,6 +269,39 @@ class MarkdownRenderer:
                     lines.append(f"- `{p.attributes.get('name', p.value)}` ({loc})")
                 lines.append("")
 
+        # JavaScript analysis (Phase 8) — only when the JS agent produced assets.
+        js_endpoints = [
+            a for a in bundle.assets
+            if a.type == AssetType.ENDPOINT and a.attributes.get("via") == "js"
+        ]
+        js_secrets = [
+            a for a in bundle.assets
+            if a.type == AssetType.SECRET and a.attributes.get("via") == "js"
+        ]
+        source_maps = [a for a in bundle.assets if a.type == AssetType.SOURCE_MAP]
+        if js_endpoints or js_secrets or source_maps:
+            lines.append("## JavaScript Analysis")
+            lines.append("")
+            if js_endpoints:
+                internal = sum(1 for e in js_endpoints if e.attributes.get("internal"))
+                lines.append(
+                    f"**Endpoints from JS ({len(js_endpoints)}, {internal} in-scope):**"
+                )
+                for e in js_endpoints[:40]:
+                    lines.append(f"- `{e.value}`")
+                lines.append("")
+            if js_secrets:
+                lines.append(f"**Secrets in JS ({len(js_secrets)}):**")
+                for s in js_secrets[:20]:
+                    kind = s.attributes.get("kind", "secret")
+                    lines.append(f"- [{kind}] `{s.attributes.get('js_file', '')}`")
+                lines.append("")
+            if source_maps:
+                lines.append(f"**Source maps ({len(source_maps)}):**")
+                for m in source_maps[:20]:
+                    lines.append(f"- `{m.value}`")
+                lines.append("")
+
         # Appendix: reasoning trace
         lines.append("## Appendix — Reasoning Trace")
         lines.append("")

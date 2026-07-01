@@ -22,6 +22,7 @@ from recon_platform.agents import (
     APIDiscoveryAgent,
     BrowserAgent,
     DesktopAgent,
+    JSAnalysisAgent,
     NetworkAgent,
     PlannerAgent,
     ReconAgent,
@@ -70,6 +71,9 @@ class ReconOrchestrator:
             self._bus, self._memory, self._llm, self._graph, self._settings
         )
         self._active = ActiveReconAgent(
+            self._bus, self._memory, self._llm, self._graph, self._settings
+        )
+        self._js = JSAnalysisAgent(
             self._bus, self._memory, self._llm, self._graph, self._settings
         )
         self._network = NetworkAgent(
@@ -195,6 +199,22 @@ class ReconOrchestrator:
         state.assets += assets
         state.relations += relations
 
+    async def _step_js(self, state: RunState) -> None:
+        """Optional JavaScript-analysis step (after active recon, before network).
+
+        Passively fetches and analyzes the app's scripts, mapping the client-side
+        attack surface (endpoints, parameters, secrets, source maps). It runs
+        before the network and API-discovery agents so its JS-sourced endpoints
+        feed their classification. No-ops cleanly when disabled or when no scripts
+        were discovered.
+        """
+        if not self._settings.js_analysis.enabled:
+            return
+        await self._emit("step", name="js_analysis")
+        assets, relations = await self._js.run_js_analysis(state.engagement)
+        state.assets += assets
+        state.relations += relations
+
     async def _step_network(self, state: RunState) -> None:
         """Optional network-analysis step (after active recon, before analysis).
 
@@ -276,6 +296,7 @@ class ReconOrchestrator:
         await self._step_verify(state)
         await self._step_desktop(state)
         await self._step_active(state)
+        await self._step_js(state)
         await self._step_network(state)
         await self._step_api(state)
         await self._step_analyze(state)
@@ -325,6 +346,10 @@ class ReconOrchestrator:
             await self._step_active(s["state"])
             return s
 
+        async def js_node(s: dict) -> dict:
+            await self._step_js(s["state"])
+            return s
+
         async def network_node(s: dict) -> dict:
             await self._step_network(s["state"])
             return s
@@ -349,6 +374,7 @@ class ReconOrchestrator:
         builder.add_node("verification", verify_node)
         builder.add_node("desktop", desktop_node)
         builder.add_node("active_recon", active_node)
+        builder.add_node("js_analysis", js_node)
         builder.add_node("network", network_node)
         builder.add_node("api_discovery", api_node)
         builder.add_node("analyze", analyze_node)
@@ -360,7 +386,8 @@ class ReconOrchestrator:
         builder.add_edge("vision", "verification")
         builder.add_edge("verification", "desktop")
         builder.add_edge("desktop", "active_recon")
-        builder.add_edge("active_recon", "network")
+        builder.add_edge("active_recon", "js_analysis")
+        builder.add_edge("js_analysis", "network")
         builder.add_edge("network", "api_discovery")
         builder.add_edge("api_discovery", "analyze")
         builder.add_edge("analyze", "report")

@@ -6,11 +6,11 @@
 | | |
 |---|---|
 | **Project** | recon-platform — AI-powered Web App Security Reconnaissance |
-| **Current version** | `0.7.0` |
-| **Current phase** | **Phase 7 — API Discovery Agent ✅ Completed** |
-| **Next milestone** | **Phase 8 — JavaScript Analysis** |
+| **Current version** | `0.8.0` |
+| **Current phase** | **Phase 8 — JavaScript Analysis ✅ Completed** |
+| **Next milestone** | **Phase 9 — Authentication Workflows** |
 | **Last updated** | 2026-07-01 |
-| **Quality gates** | ✅ `ruff check` clean; `pytest` 103/104 (all 17 new API-discovery tests green, plus the 18 network tests). The same **pre-existing** verification test (`test_agreement_missing_reported_as_verified`) still fails on HEAD, unrelated to Phase 7 — see *Known issues* below. |
+| **Quality gates** | ✅ `ruff check` clean; `pytest` 117/118 (all 14 new JS-analysis tests green, plus the 17 API-discovery + 18 network tests). The same **pre-existing** verification test (`test_agreement_missing_reported_as_verified`) still fails on HEAD, unrelated to Phase 8 — see *Known issues* below. |
 
 ---
 
@@ -387,13 +387,59 @@ Reporting.
 
 ---
 
-## ⏭️ Next milestone — Phase 8: JavaScript Analysis
+## ✅ Phase 8 — JavaScript Analysis (Completed)
 
-Extract endpoints, parameters, and potential secrets from JavaScript bundles and
-source maps; map the client-side attack surface and feed it into the graph (and
-onward into API discovery). See [ROADMAP.md](ROADMAP.md) for the full phase plan.
+Added a **JS-Analysis agent** that maps the client-side attack surface, behind the
+existing `Agent` Protocol and orchestrator with **zero rewrites** of earlier
+layers. Unlike the Network / API-discovery correlators it performs *passive*
+outbound fetches — GET-only retrieval of the scripts the target already serves
+(declaring `NETWORK_PASSIVE`, the same posture as the passive-recon modules) —
+then reasons over the text purely. Opt-in and off by default, degrading to a clean
+no-op when disabled or offline. The pipeline is now Planner → Recon → Browser →
+Vision → Verification → Desktop → Active Recon → **JS Analysis** → Network → API
+Discovery → Analysis → Reporting.
 
-**Entry criteria:** Phase 7 green (met). **Do not** restart earlier phases or
+### Implemented features
+
+- **`js_analysis/` infrastructure**: a dependency-free analyzer layer
+  (`analyzers.py`) carrying all logic as pure, directly unit-testable functions —
+  endpoint extraction (absolute URLs + quoted paths, static assets filtered and
+  resolved against the script URL), query-parameter extraction, source-map
+  discovery, and an in-scope-host check — with secret detection reusing the shared
+  `vision.detector.find_secrets` patterns so JS and OCR report secrets
+  identically. Plus a `JSModule` base + `JSContext` (`{url: source}` snapshot) and
+  a single, easily-mocked GET-only `fetch_js` seam.
+- **Three JS modules** + a `build_js_modules` factory (honouring the
+  per-capability toggles): `js_endpoints` (→ `ENDPOINT` + `API_PARAMETER`,
+  tagged `via=js`), `js_secrets` (→ `SECRET`, tagged `via=js`), and
+  `js_source_maps` (→ the new `SOURCE_MAP` type). Every module captures errors
+  into `result.errors` and never raises.
+- **`JSAnalysisAgent`** (role `JS_ANALYSIS`) gathers `JS_FILE` URLs from the
+  graph, passively fetches them (capped by count/size, optional second-pass
+  source-map fetch), runs the modules, merges results back, records a trace per
+  module, and emits `js.*` A2A events.
+- **Orchestration**: an independent `js_analysis` step (sequential + LangGraph
+  node) after active recon and *before* network/API discovery, so JS-sourced
+  endpoints feed traffic classification and API characterization — the Planner's
+  3-task plan is untouched.
+- **Analysis & reporting**: additive rules for secrets embedded in JS,
+  source-map exposure, and a client-side-surface summary; a new "JavaScript
+  Analysis" report section.
+- **Surfaces**: `JSAnalysisPlugin` in the MCP catalogue (registered when
+  enabled), `recon passive-recon --js`, `recon js-analysis <target>`, an API `js`
+  flag, and `RECON_JS_ANALYSIS__*` settings.
+- **Quality**: 14 new hermetic JS-analysis tests (fetch mocked; no real network);
+  `ruff check` clean; default offline run verified unchanged.
+
+---
+
+## ⏭️ Next milestone — Phase 9: Authentication Workflows
+
+Login, registration, forgot-password, and admin-panel workflows with secure
+credential handling; capture authenticated sessions for downstream agents. See
+[ROADMAP.md](ROADMAP.md) for the full phase plan.
+
+**Entry criteria:** Phase 8 green (met). **Do not** restart earlier phases or
 regenerate completed code — extend via the existing seams.
 
 ---
@@ -402,6 +448,18 @@ regenerate completed code — extend via the existing seams.
 
 Add dated entries here as work proceeds. Newest first.
 
+- **2026-07-01** — Phase 8 (JavaScript Analysis) completed and released as
+  `v0.8.0`. A JS-Analysis agent maps the client-side attack surface: it passively
+  fetches (GET-only) the scripts the target serves and extracts endpoints,
+  parameters, embedded secrets, and source-map references over a dependency-free
+  analyzer layer and three modules, emitting `ENDPOINT`/`SECRET` assets tagged
+  `via=js` plus a new `SOURCE_MAP` type. Additive analysis rules (JS secrets,
+  source-map exposure, client-side surface) and a "JavaScript Analysis" report
+  section surface the findings. It runs before the network/API agents so its
+  endpoints feed their classification; pipeline is now … → Active Recon → JS
+  Analysis → Network → API Discovery → Analysis → Reporting. 14 new hermetic tests
+  (fetch mocked), `ruff check` clean. (The same pre-existing verification test
+  still fails on HEAD, unrelated to this work.)
 - **2026-07-01** — Phase 7 (API Discovery Agent) completed and released as
   `v0.7.0`. A passive API-Discovery agent characterizes APIs across REST, GraphQL,
   SOAP, and gRPC — REST resource/version inference with parameter extraction,

@@ -16,8 +16,8 @@ the established Protocol seams (agents, tools, renderers, bus, memory).
 | 5 | Active Recon & Tool Plugins | ✅ |
 | 6 | Network Agent | ✅ |
 | 7 | API Discovery Agent | ✅ |
-| 8 | JavaScript Analysis | 🔜 |
-| 9 | Authentication Workflows | ⏳ |
+| 8 | JavaScript Analysis | ✅ |
+| 9 | Authentication Workflows | 🔜 |
 | 10 | Persistence & State | ⏳ |
 | 11 | Vector Memory & Semantic Recall | ⏳ |
 | 12 | Knowledge-Graph Agent & Visualization | ⏳ |
@@ -157,10 +157,27 @@ and secrets feed this surface further in Phase 8.
 > Pipeline is now … → Active Recon → Network → **API Discovery** → Analysis →
 > Reporting.
 
-## Phase 8 — JavaScript Analysis ⏳
+## Phase 8 — JavaScript Analysis ✅
 
-Extract endpoints, parameters, and potential secrets from JavaScript bundles and
-source maps; map the client-side attack surface and feed it into the graph.
+A **JS-Analysis agent** that maps the client-side attack surface, wired behind the
+existing `Agent` Protocol and orchestrator. Delivered a dependency-free analyzer
+layer (`js_analysis/analyzers.py`: endpoint extraction, query-parameter
+extraction, source-map discovery — with secret detection reusing the shared
+patterns) and three `JSModule`s (`js_endpoints`, `js_secrets`, `js_source_maps`)
+run over script bodies the agent **passively fetches** (GET-only, size-capped,
+failure-tolerant — declaring `NETWORK_PASSIVE`, the same posture as passive
+recon). Endpoints/secrets reuse the existing `ENDPOINT` / `SECRET` types (tagged
+`via=js`) so they feed the Network and API-discovery agents and existing rules
+unchanged; `SOURCE_MAP` is the one new type. Additive analysis rules (JS secrets,
+source-map exposure, client-side surface) and a "JavaScript Analysis" report
+section surface the findings. Opt-in and off by default, degrading to a clean
+no-op when disabled or offline. The pipeline is now Planner → Recon → Browser →
+Vision → Verification → Desktop → Active Recon → **JS Analysis** → Network → API
+Discovery → Analysis → Reporting.
+
+> Pipeline is now … → Active Recon → **JS Analysis** → Network → API Discovery →
+> Analysis → Reporting (JS runs first so its endpoints feed traffic
+> classification and API characterization).
 
 ## Phase 9 — Authentication Workflows ⏳
 

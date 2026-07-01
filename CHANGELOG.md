@@ -4,6 +4,62 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.8.0] — 2026-07-01
+
+### Phase 8 — JavaScript Analysis (Completed)
+
+A **JS-Analysis agent** that maps the client-side attack surface, wired behind the
+existing `Agent` Protocol and orchestrator without rewriting any earlier layer.
+Unlike the Network / API-discovery correlators it performs *passive* outbound
+fetches — GET-only retrieval of the scripts the target already serves (declaring
+`NETWORK_PASSIVE`, the same posture as the passive-recon modules) — then reasons
+over the text purely. Opt-in and off by default, degrading to a clean no-op when
+disabled or offline. The pipeline is now Planner → Recon → Browser → Vision →
+Verification → Desktop → Active Recon → **JS Analysis** → Network → API Discovery
+→ Analysis → Reporting.
+
+#### Added
+
+- **JS-analysis infrastructure** (`js_analysis/`): a dependency-free analyzer layer
+  (`analyzers.py`) carrying all logic as pure, directly unit-testable functions —
+  endpoint extraction (absolute URLs + quoted paths, static assets filtered,
+  resolved against the script URL), query-parameter extraction, source-map
+  discovery, and an in-scope-host check — with secret detection reusing the shared
+  `vision.detector.find_secrets` patterns. Plus a `JSModule` base + `JSContext`
+  (`{url: source}` snapshot) and a single, easily-mocked GET-only `fetch_js` seam
+  (size-capped, failure-tolerant — returns `None` instead of raising).
+- **Three JS modules** + a `build_js_modules` factory (honouring per-capability
+  toggles): `js_endpoints` (→ `ENDPOINT` + `API_PARAMETER`, tagged `via=js`, with
+  `REFERENCES` relations back to the `JS_FILE`), `js_secrets` (→ `SECRET`, tagged
+  `via=js`, `CONTAINS` relation), and `js_source_maps` (→ the new `SOURCE_MAP`
+  type). Modules are defensive — errors are captured in `result.errors`, never
+  raised.
+- **`JSAnalysisAgent`** (role `JS_ANALYSIS`) that gathers `JS_FILE` URLs from the
+  graph, passively fetches them (capped by count/size, optional second-pass
+  source-map fetch), runs the modules, merges results back, records a reasoning
+  trace per module, and emits `js.*` A2A events.
+- **Orchestration**: an independent `js_analysis` step (sequential + LangGraph
+  node) after active recon and *before* network/API discovery — so JS-sourced
+  endpoints feed traffic classification and API characterization. The Planner's
+  3-task plan is untouched.
+- **Analysis & reporting**: additive rules for secrets embedded in JS, source-map
+  exposure, and a client-side-surface summary; a new "JavaScript Analysis" report
+  section.
+- **Surfaces**: `JSAnalysisPlugin` in the MCP catalogue (registered when enabled),
+  `recon passive-recon --js`, `recon js-analysis <target>`, an API `js` flag, and
+  `RECON_JS_ANALYSIS__*` settings.
+- **New domain types**: `AssetType.SOURCE_MAP` and `AgentRole.JS_ANALYSIS`
+  (`WorkflowType.JS_ANALYSIS` already existed).
+
+#### Quality
+
+- 14 new hermetic tests (`tests/test_js_analysis.py`): analyzer unit tests, module
+  tests over a hand-built context, and a stubbed end-to-end run (with `fetch_js`
+  monkeypatched) proving JS assets reach the graph, become findings, and render a
+  report section.
+- `ruff check` clean. The pre-existing `test_agreement_missing_reported_as_verified`
+  failure on HEAD is unrelated to this work (see PROJECT_STATUS.md → Known issues).
+
 ## [0.7.0] — 2026-07-01
 
 ### Phase 7 — API Discovery Agent (Completed)

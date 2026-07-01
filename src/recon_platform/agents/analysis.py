@@ -35,6 +35,8 @@ SOURCE_ACTIVE = "active-recon"
 SOURCE_NETWORK = "network"
 #: Observer tag for API-discovery findings.
 SOURCE_API = "api-discovery"
+#: Observer tag for JavaScript-analysis findings.
+SOURCE_JS = "js-analysis"
 
 
 class AnalysisAgent(BaseAgent):
@@ -73,6 +75,9 @@ class AnalysisAgent(BaseAgent):
         findings += _stamp(self._network_traffic_surface(), [SOURCE_NETWORK])
         findings += _stamp(self._api_inventory(), [SOURCE_API])
         findings += _stamp(self._api_weak_auth(), [SOURCE_API])
+        findings += _stamp(self._js_secrets(), [SOURCE_JS])
+        findings += _stamp(self._js_source_maps(), [SOURCE_JS])
+        findings += _stamp(self._js_surface(), [SOURCE_JS])
 
         findings.sort(key=lambda f: f.severity.rank, reverse=True)
 
@@ -1029,6 +1034,109 @@ class AnalysisAgent(BaseAgent):
                 )
             )
         return findings
+
+    # -- js-analysis rules (Phase 8) ---------------------------------------
+    def _js_secrets(self) -> list[Finding]:
+        """Secrets embedded in JavaScript bundles (from=='js')."""
+        secrets = [
+            a
+            for a in self.graph.assets(AssetType.SECRET)
+            if a.attributes.get("via") == "js"
+        ]
+        if not secrets:
+            return []
+        return [
+            Finding(
+                title="Secrets embedded in JavaScript",
+                description=(
+                    f"{len(secrets)} high-signal secret(s) (API keys, tokens, or "
+                    "private keys) were found in the client-side JavaScript, where "
+                    "anyone can read them."
+                ),
+                severity=Severity.HIGH,
+                category="information-disclosure",
+                asset_keys=[s.key for s in secrets],
+                evidence=[
+                    Evidence(
+                        label=str(s.attributes.get("kind", "secret")),
+                        detail=_mask(s.value),
+                        data={"js_file": s.attributes.get("js_file", "")},
+                    )
+                    for s in secrets[:20]
+                ],
+                recommendation=(
+                    "Rotate the exposed credentials immediately and move secrets to "
+                    "the server side; never ship them in client bundles."
+                ),
+                references={"cwe": "CWE-615", "owasp": "A02:2021-Cryptographic Failures"},
+                confidence=0.8,
+            )
+        ]
+
+    def _js_source_maps(self) -> list[Finding]:
+        """Exposed source maps that reconstruct original client-side source."""
+        maps = self.graph.assets(AssetType.SOURCE_MAP)
+        if not maps:
+            return []
+        return [
+            Finding(
+                title=f"Source maps exposed ({len(maps)})",
+                description=(
+                    f"{len(maps)} JavaScript source map(s) were referenced. Source "
+                    "maps reconstruct the original (pre-minification) source, "
+                    "revealing internal structure, comments, and sometimes secrets."
+                ),
+                severity=Severity.LOW,
+                category="information-disclosure",
+                asset_keys=[m.key for m in maps],
+                evidence=[Evidence(label="source map", detail=m.value) for m in maps[:20]],
+                recommendation=(
+                    "Do not deploy source maps to production, or restrict access to "
+                    "them; strip sourceMappingURL comments from shipped bundles."
+                ),
+                references={"cwe": "CWE-540"},
+                confidence=0.7,
+            )
+        ]
+
+    def _js_surface(self) -> list[Finding]:
+        """Informational summary of the client-side surface extracted from JS."""
+        endpoints = [
+            a
+            for a in self.graph.assets(AssetType.ENDPOINT)
+            if a.attributes.get("via") == "js"
+        ]
+        params = [
+            a
+            for a in self.graph.assets(AssetType.API_PARAMETER)
+            if a.attributes.get("via") == "js"
+        ]
+        if not endpoints and not params:
+            return []
+        internal = [e for e in endpoints if e.attributes.get("internal")]
+        return [
+            Finding(
+                title=(
+                    f"Client-side surface from JavaScript "
+                    f"({len(endpoints)} endpoint(s), {len(params)} parameter(s))"
+                ),
+                description=(
+                    f"Analysis of the site's JavaScript extracted {len(endpoints)} "
+                    f"endpoint(s) ({len(internal)} in-scope) and {len(params)} "
+                    "request parameter(s), expanding the mapped attack surface for "
+                    "the network and API-discovery agents."
+                ),
+                severity=Severity.INFO,
+                category="attack-surface",
+                asset_keys=[a.key for a in (endpoints + params)],
+                evidence=[Evidence(label="endpoint", detail=e.value) for e in endpoints[:25]],
+                recommendation=(
+                    "Review JS-referenced endpoints for undocumented or sensitive "
+                    "functionality and confirm each enforces authorization."
+                ),
+                confidence=0.8,
+            )
+        ]
 
     async def executive_summary(self, findings: list[Finding], target: str) -> str:
         counts: dict[str, int] = {}

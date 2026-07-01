@@ -49,6 +49,7 @@ def _settings_for(
     active: bool = False,
     network: bool = False,
     api: bool = False,
+    js: bool = False,
 ) -> Settings:
     """Build a fresh Settings with the optional agents toggled.
 
@@ -71,6 +72,7 @@ def _settings_for(
     settings.active_recon.enabled = active
     settings.network.enabled = network
     settings.api_discovery.enabled = api
+    settings.js_analysis.enabled = js
     return settings
 
 
@@ -93,20 +95,24 @@ async def _execute(
     active: bool = False,
     network: bool = False,
     api: bool = False,
+    js: bool = False,
 ) -> int:
     # An explicit Settings (built only when needed) lets the optional-agent flags
     # flip the otherwise-default-off agents without touching the cached
     # process-wide settings singleton.
+    _optional = browser or vision or desktop or active or network or api or js
     container = (
-        build_container(_settings_for(browser, vision, desktop, active, network, api))
-        if (browser or vision or desktop or active or network or api)
+        build_container(_settings_for(browser, vision, desktop, active, network, api, js))
+        if _optional
         else build_container()
     )
     orch = ReconOrchestrator(container)
     engagement = EngagementContext(target=target, workflow=WorkflowType.PASSIVE_RECON)
 
     label = (
-        "API discovery"
+        "JavaScript analysis"
+        if js
+        else "API discovery"
         if api
         else "Network recon"
         if network
@@ -208,6 +214,12 @@ def passive_recon(
         help="Also run the API-Discovery agent (passive REST / GraphQL / SOAP / "
         "gRPC characterization + auth-scheme detection). No new I/O; off by default.",
     ),
+    js: bool = typer.Option(
+        False,
+        "--js/--no-js",
+        help="Also run the JS-Analysis agent (passively fetch + analyze scripts for "
+        "endpoints, secrets, and source maps). GET-only fetch; off by default.",
+    ),
 ) -> None:
     """Run the passive reconnaissance workflow end-to-end."""
     code = asyncio.run(
@@ -221,6 +233,7 @@ def passive_recon(
             active=active,
             network=network,
             api=api,
+            js=js,
         )
     )
     raise typer.Exit(code)
@@ -385,6 +398,40 @@ def api_discovery(
     """
     code = asyncio.run(
         _execute(target, report_format, out, browser=with_browser, network=True, api=True)
+    )
+    raise typer.Exit(code)
+
+
+@app.command("js-analysis")
+def js_analysis(
+    target: str = typer.Argument(..., help="Authorized domain or host to analyze."),
+    report_format: str = typer.Option(
+        "markdown", "--report-format", "-f", help="markdown | html | json"
+    ),
+    out: pathlib.Path | None = typer.Option(
+        None, "--out", "-o", help="Write the report to this file instead of stdout."
+    ),
+    with_browser: bool = typer.Option(
+        True,
+        "--with-browser/--no-with-browser",
+        help="Also run the Browser agent to inventory <script src> URLs for the "
+        "JS-Analysis agent to fetch (requires the 'browser' extra).",
+    ),
+) -> None:
+    """Run the workflow with the JS-Analysis agent enabled.
+
+    The JS-Analysis agent maps the client-side attack surface: it **passively
+    fetches** (GET-only) the JavaScript the target serves and extracts endpoints,
+    request parameters, embedded secrets, and source-map references. It relies on
+    ``JS_FILE`` assets discovered by the Browser agent (enabled by default here;
+    pass ``--no-with-browser`` to analyze only scripts found by passive recon).
+    JS-sourced endpoints then feed the Network and API-discovery agents, which run
+    alongside it.
+    """
+    code = asyncio.run(
+        _execute(
+            target, report_format, out, browser=with_browser, network=True, api=True, js=True
+        )
     )
     raise typer.Exit(code)
 

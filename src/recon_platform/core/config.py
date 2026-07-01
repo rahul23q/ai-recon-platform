@@ -224,6 +224,35 @@ class APIDiscoverySettings(BaseSettings):
     max_items: int = 500
 
 
+class JSAnalysisSettings(BaseSettings):
+    """JavaScript-analysis agent configuration (Phase 8 — client-side surface).
+
+    **Off by default.** The JS-Analysis agent extracts endpoints, parameters,
+    secrets, and source-map references from the JavaScript the app references
+    (``JS_FILE`` assets discovered by the Browser agent, plus passive recon). It is
+    the one analysis agent that performs *passive* outbound fetches — GET-only
+    retrieval of the scripts the target already serves (``NETWORK_PASSIVE``), the
+    same posture as the passive-recon modules — then reasons over the text purely.
+    With ``fetch`` disabled (or offline) it degrades to a clean no-op.
+    """
+
+    model_config = SettingsConfigDict(env_prefix="RECON_JS_ANALYSIS__")
+
+    enabled: bool = False
+    # Fetch referenced .js files over HTTP (GET-only). When False the agent only
+    # analyzes any script bodies already captured (none by default ⇒ no-op).
+    fetch: bool = True
+    # Also fetch discovered source maps to confirm original-source exposure.
+    fetch_source_maps: bool = False
+    # Extraction toggles.
+    extract_endpoints: bool = True
+    extract_secrets: bool = True
+    discover_source_maps: bool = True
+    # Budgets: cap how many scripts are fetched and the size of each.
+    max_files: int = 50
+    max_bytes: int = 2_000_000
+
+
 class Settings(BaseSettings):
     """Root settings object — the single source of truth for configuration."""
 
@@ -244,6 +273,7 @@ class Settings(BaseSettings):
     active_recon: ActiveReconSettings = Field(default_factory=ActiveReconSettings)
     network: NetworkSettings = Field(default_factory=NetworkSettings)
     api_discovery: APIDiscoverySettings = Field(default_factory=APIDiscoverySettings)
+    js_analysis: JSAnalysisSettings = Field(default_factory=JSAnalysisSettings)
 
     # Engagement guardrail: when true, targets must pass the authorization gate.
     authorized_only: bool = True

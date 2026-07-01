@@ -162,6 +162,23 @@ def build_container(settings: Settings | None = None) -> Container:
 
         manager.register(APIDiscoveryPlugin(build_api_modules(settings), _api_ctx_factory))
 
+    # JS-analysis modules register only when the agent is enabled. The modules are
+    # pure over already-fetched script text (the agent does the GET-only fetching),
+    # so registration pulls in nothing extra.
+    if settings.js_analysis.enabled:
+        from recon_platform.js_analysis.base import JSContext
+        from recon_platform.js_analysis.modules import build_js_modules
+        from recon_platform.plugins.js_analysis import JSAnalysisPlugin
+
+        js_target = settings.authorized_targets[0] if settings.authorized_targets else ""
+
+        def _js_ctx_factory() -> JSContext:
+            # Standalone (MCP) invocation gets an empty source map; during a full
+            # run the JSAnalysisAgent fetches and supplies the script bodies itself.
+            return JSContext(js_target, settings)
+
+        manager.register(JSAnalysisPlugin(build_js_modules(settings), _js_ctx_factory))
+
     container.register_instance(PluginManager, manager)
 
     return container
