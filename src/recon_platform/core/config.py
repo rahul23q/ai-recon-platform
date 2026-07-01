@@ -172,6 +172,32 @@ class ActiveReconSettings(BaseSettings):
     rate_limit: int = 0
 
 
+class NetworkSettings(BaseSettings):
+    """Network-agent configuration (Phase 6 — request/response analysis).
+
+    **Off by default.** The Network agent is a passive correlation layer: it reads
+    the HTTP headers, cookies, tokens, endpoints, and captured traffic already in
+    the knowledge graph (from passive recon, the Browser agent, and active recon)
+    and analyzes them — JWT inspection, header/CORS hygiene, GraphQL/REST traffic
+    classification, and WebSocket review — without issuing any new requests. It
+    therefore has no external dependency and degrades to a clean no-op when
+    disabled.
+    """
+
+    model_config = SettingsConfigDict(env_prefix="RECON_NETWORK__")
+
+    enabled: bool = False
+    # Decode JWTs found in headers / tokens / URLs (header+payload only; the
+    # signature is never verified — this is inspection, not validation).
+    decode_jwt: bool = True
+    # Flag insecure (unencrypted ``ws://``) WebSocket endpoints.
+    flag_insecure_websocket: bool = True
+    # Classify endpoints as GraphQL / REST traffic.
+    classify_apis: bool = True
+    # Analysis budget: cap how many items each module processes.
+    max_items: int = 500
+
+
 class Settings(BaseSettings):
     """Root settings object — the single source of truth for configuration."""
 
@@ -190,6 +216,7 @@ class Settings(BaseSettings):
     vision: VisionSettings = Field(default_factory=VisionSettings)
     desktop: DesktopSettings = Field(default_factory=DesktopSettings)
     active_recon: ActiveReconSettings = Field(default_factory=ActiveReconSettings)
+    network: NetworkSettings = Field(default_factory=NetworkSettings)
 
     # Engagement guardrail: when true, targets must pass the authorization gate.
     authorized_only: bool = True

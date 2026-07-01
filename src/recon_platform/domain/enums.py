@@ -116,6 +116,13 @@ class AssetType(StrEnum):
     # (e.g. a nuclei match) carrying its severity in ``attributes["severity"]``.
     SERVICE = "service"
     VULNERABILITY = "vulnerability"
+    # Network-layer assets (Phase 6 — Network agent). JWT is a decoded JSON Web
+    # Token (with any weaknesses in ``attributes["issues"]``); WEBSOCKET is a
+    # ws://|wss:// endpoint; API_ENDPOINT characterizes an endpoint's traffic
+    # style in ``attributes["api_type"]`` (graphql | rest).
+    JWT = "jwt"
+    WEBSOCKET = "websocket"
+    API_ENDPOINT = "api_endpoint"
 
 
 class RelationType(StrEnum):
