@@ -4,6 +4,67 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.9.0] — 2026-07-02
+
+### Phase 9 — Authentication Workflows (Completed)
+
+An **Authentication agent** that drives login, registration, forgot-password, and
+admin-panel workflows and captures authenticated sessions, wired behind the
+existing `Agent` Protocol and orchestrator without rewriting any earlier layer.
+Authenticating is **active/intrusive** (it submits credentials), so — like active
+recon — it sits behind a *two-key* posture (`enabled` + `authorized`) plus the
+engagement authorization gate. Opt-in and off by default, degrading to a clean
+no-op when disabled, unauthorized, or with no browser backend. The pipeline is now
+Planner → Recon → Browser → Vision → Verification → Desktop → Active Recon →
+**Authentication** → JS Analysis → Network → API Discovery → Analysis → Reporting.
+
+#### Added
+
+- **Auth infrastructure** (`auth/`) with a Playwright-free, hermetically-testable
+  core: pure form heuristics (`forms.py` — field classification,
+  username/email/password/submit location, login-success detection),
+  candidate-URL discovery from the graph (`discovery.py`), `SecretStr`-backed
+  credential handling with masking (`credentials.py`), value objects (`models.py`
+  — `AuthResult` / `CapturedSession`), and a narrow `AuthPage` **protocol seam**
+  (`page.py`) with a Playwright-backed adapter + an `open_auth_page` factory the
+  agent and tests drive.
+- **Four workflows** + a `build_workflows` factory (per-workflow toggles):
+  `login`, `registration`, `forgot_password`, and `admin_probe`. They call only
+  the `AuthPage` seam and the pure heuristics — identical against the real browser
+  and the test fake — and every page interaction is failure-wrapped.
+- **`AuthenticationAgent`** (role `AUTHENTICATION`): two-key + gate skip; discovers
+  candidate URLs, opens the browser via the seam, runs the workflows, and captures
+  each session to **episodic memory** (cookie values, for downstream reuse) plus a
+  masked **`SESSION`** asset (cookie names only). Credentials are masked in traces
+  and never written to the graph or report.
+- **Orchestration**: an independent `authentication` step (sequential + LangGraph
+  node) after active recon and before JS analysis — the Planner's 3-task plan is
+  untouched.
+- **Analysis & reporting**: additive rules for admin panels reachable without
+  authentication (HIGH), credentials submitted over cleartext HTTP (HIGH), and a
+  workflow summary; a new "Authentication" report section (outcomes + cookie names
+  only, with an explicit "credentials never shown" note).
+- **Surfaces**: `AuthenticationPlugin` in the MCP catalogue (descriptor-only — the
+  real flow needs the live agent), `recon passive-recon --auth`, `recon auth
+  <target>`, an API `auth` flag, and `RECON_AUTH__*` settings.
+- **New domain types**: `AssetType.SESSION` and `AgentRole.AUTHENTICATION`
+  (`WorkflowType.AUTH` already existed).
+
+#### Security
+
+- Credentials are read from the environment as `SecretStr`, masked in every trace
+  and finding, and never persisted to the graph or rendered in reports; captured
+  cookie **values** live only in episodic memory (the graph/report carry cookie
+  **names** only). A test asserts credentials never appear in the rendered report.
+
+#### Quality
+
+- 12 new hermetic tests (`tests/test_auth.py`): form/discovery/credential unit
+  tests, workflow tests over a scripted `FakeAuthPage`, the two-key gate, and a
+  stubbed end-to-end run (with `open_auth_page` monkeypatched).
+- `ruff check` clean. The pre-existing `test_agreement_missing_reported_as_verified`
+  failure on HEAD is unrelated to this work (see PROJECT_STATUS.md → Known issues).
+
 ## [0.8.0] — 2026-07-01
 
 ### Phase 8 — JavaScript Analysis (Completed)

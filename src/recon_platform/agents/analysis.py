@@ -37,6 +37,8 @@ SOURCE_NETWORK = "network"
 SOURCE_API = "api-discovery"
 #: Observer tag for JavaScript-analysis findings.
 SOURCE_JS = "js-analysis"
+#: Observer tag for authentication-workflow findings.
+SOURCE_AUTH = "authentication"
 
 
 class AnalysisAgent(BaseAgent):
@@ -78,6 +80,9 @@ class AnalysisAgent(BaseAgent):
         findings += _stamp(self._js_secrets(), [SOURCE_JS])
         findings += _stamp(self._js_source_maps(), [SOURCE_JS])
         findings += _stamp(self._js_surface(), [SOURCE_JS])
+        findings += _stamp(self._auth_admin_exposed(), [SOURCE_AUTH])
+        findings += _stamp(self._auth_insecure_login(), [SOURCE_AUTH])
+        findings += _stamp(self._auth_summary(), [SOURCE_AUTH])
 
         findings.sort(key=lambda f: f.severity.rank, reverse=True)
 
@@ -1135,6 +1140,114 @@ class AnalysisAgent(BaseAgent):
                     "functionality and confirm each enforces authorization."
                 ),
                 confidence=0.8,
+            )
+        ]
+
+    # -- authentication rules (Phase 9) ------------------------------------
+    def _auth_admin_exposed(self) -> list[Finding]:
+        """Admin panels reachable without authentication (from admin-probe)."""
+        exposed = [
+            s
+            for s in self.graph.assets(AssetType.SESSION)
+            if s.attributes.get("workflow") == "admin_probe"
+            and s.attributes.get("accessible_unauthenticated")
+        ]
+        if not exposed:
+            return []
+        return [
+            Finding(
+                title=f"Admin panel accessible without authentication ({len(exposed)})",
+                description=(
+                    f"{len(exposed)} admin/management URL(s) were reachable without "
+                    "authentication — no login was required and no redirect to a "
+                    "login page occurred."
+                ),
+                severity=Severity.HIGH,
+                category="access-control",
+                asset_keys=[s.key for s in exposed],
+                evidence=[
+                    Evidence(label="admin", detail=str(s.attributes.get("url"))) for s in exposed
+                ],
+                recommendation=(
+                    "Require authentication and authorization on all administrative "
+                    "interfaces; do not rely on the URL being unguessable."
+                ),
+                references={"owasp": "A01:2021-Broken Access Control", "cwe": "CWE-306"},
+                confidence=0.7,
+            )
+        ]
+
+    def _auth_insecure_login(self) -> list[Finding]:
+        """Credentials submitted to a cleartext (http://) login endpoint."""
+        insecure = [
+            s
+            for s in self.graph.assets(AssetType.SESSION)
+            if s.attributes.get("workflow") in ("login", "registration")
+            and str(s.attributes.get("scheme")) == "http"
+        ]
+        if not insecure:
+            return []
+        return [
+            Finding(
+                title="Credentials submitted over cleartext HTTP",
+                description=(
+                    "An authentication form was submitted to an http:// endpoint, so "
+                    "credentials traverse the network unencrypted and can be "
+                    "intercepted."
+                ),
+                severity=Severity.HIGH,
+                category="authentication",
+                asset_keys=[s.key for s in insecure],
+                evidence=[
+                    Evidence(label="url", detail=str(s.attributes.get("url"))) for s in insecure
+                ],
+                recommendation="Serve all authentication endpoints over HTTPS and redirect HTTP.",
+                references={"owasp": "A02:2021-Cryptographic Failures", "cwe": "CWE-319"},
+                confidence=0.8,
+            )
+        ]
+
+    def _auth_summary(self) -> list[Finding]:
+        """Informational summary of the authentication workflows attempted."""
+        sessions = self.graph.assets(AssetType.SESSION)
+        if not sessions:
+            return []
+        by_workflow: dict[str, list] = {}
+        for s in sessions:
+            by_workflow.setdefault(str(s.attributes.get("workflow", "?")), []).append(s)
+        authenticated = [s for s in sessions if s.attributes.get("authenticated")]
+        parts = []
+        for wf, items in sorted(by_workflow.items()):
+            ok = sum(1 for i in items if i.attributes.get("success"))
+            parts.append(f"{wf}: {ok}/{len(items)}")
+        return [
+            Finding(
+                title=f"Authentication workflows attempted ({len(sessions)})",
+                description=(
+                    "Authenticated workflows were run against the target "
+                    f"({'; '.join(parts)} succeeded). "
+                    + (
+                        f"{len(authenticated)} session(s) were captured for downstream reuse."
+                        if authenticated
+                        else "No session was captured."
+                    )
+                ),
+                severity=Severity.INFO,
+                category="authentication",
+                asset_keys=[s.key for s in sessions],
+                evidence=[
+                    Evidence(
+                        label=str(s.attributes.get("workflow")),
+                        detail=f"{s.attributes.get('url')} → {s.attributes.get('reason')}",
+                        data={"cookies": len(s.attributes.get("cookie_names") or [])},
+                    )
+                    for s in sessions[:20]
+                ],
+                recommendation=(
+                    "Confirm authentication attempts were authorized; captured "
+                    "session cookies are held in episodic memory only."
+                ),
+                confidence=0.85,
             )
         ]
 

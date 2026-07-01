@@ -179,6 +179,15 @@ def build_container(settings: Settings | None = None) -> Container:
 
         manager.register(JSAnalysisPlugin(build_js_modules(settings), _js_ctx_factory))
 
+    # Authentication workflows register only when the agent is enabled. They are
+    # descriptor-only in the catalogue (the real flow needs the live Auth agent),
+    # so registration pulls in nothing extra.
+    if settings.auth.enabled:
+        from recon_platform.auth.workflows import build_workflows
+        from recon_platform.plugins.auth import AuthenticationPlugin
+
+        manager.register(AuthenticationPlugin(build_workflows(settings)))
+
     container.register_instance(PluginManager, manager)
 
     return container

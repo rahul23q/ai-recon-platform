@@ -32,7 +32,7 @@ def create_app(container: Container | None = None):  # noqa: C901 - factory
     from pydantic import BaseModel
 
     container = container or build_container()
-    app = FastAPI(title="recon-platform", version="0.8.0")
+    app = FastAPI(title="recon-platform", version="0.9.0")
 
     # In-memory run registry (swap for Redis/Postgres in the infra config).
     runs: dict[str, dict[str, Any]] = {}
@@ -67,6 +67,11 @@ def create_app(container: Container | None = None):  # noqa: C901 - factory
         # Opt-in JS-analysis agent: passively fetches (GET-only) and analyzes the
         # target's scripts for endpoints, secrets, and source maps. Off by default.
         js: bool = False
+        # Opt-in authentication agent (login / registration / forgot / admin).
+        # Intrusive: turning it on here is only the first key — it submits
+        # credentials only when RECON_AUTH__AUTHORIZED and RECON_AUTH__USERNAME/
+        # PASSWORD are set and the target passes the gate; else it records a skip.
+        auth: bool = False
 
     @app.get("/healthz")
     async def healthz() -> dict[str, str]:
@@ -85,19 +90,20 @@ def create_app(container: Container | None = None):  # noqa: C901 - factory
         # implies browser (it analyzes the browser's screenshots).
         _optional = (
             req.browser or req.vision or req.desktop or req.active
-            or req.network or req.api or req.js
+            or req.network or req.api or req.js or req.auth
         )
         if _optional:
             from recon_platform.core.config import Settings
 
             run_settings = Settings()
-            run_settings.browser.enabled = req.browser or req.vision
+            run_settings.browser.enabled = req.browser or req.vision or req.auth
             run_settings.vision.enabled = req.vision
             run_settings.desktop.enabled = req.desktop
             run_settings.active_recon.enabled = req.active
             run_settings.network.enabled = req.network
             run_settings.api_discovery.enabled = req.api
             run_settings.js_analysis.enabled = req.js
+            run_settings.auth.enabled = req.auth
             run_container = build_container(run_settings)
         else:
             run_container = build_container()

@@ -50,6 +50,7 @@ def _settings_for(
     network: bool = False,
     api: bool = False,
     js: bool = False,
+    auth: bool = False,
 ) -> Settings:
     """Build a fresh Settings with the optional agents toggled.
 
@@ -73,6 +74,7 @@ def _settings_for(
     settings.network.enabled = network
     settings.api_discovery.enabled = api
     settings.js_analysis.enabled = js
+    settings.auth.enabled = auth
     return settings
 
 
@@ -96,13 +98,14 @@ async def _execute(
     network: bool = False,
     api: bool = False,
     js: bool = False,
+    auth: bool = False,
 ) -> int:
     # An explicit Settings (built only when needed) lets the optional-agent flags
     # flip the otherwise-default-off agents without touching the cached
     # process-wide settings singleton.
-    _optional = browser or vision or desktop or active or network or api or js
+    _optional = browser or vision or desktop or active or network or api or js or auth
     container = (
-        build_container(_settings_for(browser, vision, desktop, active, network, api, js))
+        build_container(_settings_for(browser, vision, desktop, active, network, api, js, auth))
         if _optional
         else build_container()
     )
@@ -110,7 +113,9 @@ async def _execute(
     engagement = EngagementContext(target=target, workflow=WorkflowType.PASSIVE_RECON)
 
     label = (
-        "JavaScript analysis"
+        "Authentication"
+        if auth
+        else "JavaScript analysis"
         if js
         else "API discovery"
         if api
@@ -220,6 +225,13 @@ def passive_recon(
         help="Also run the JS-Analysis agent (passively fetch + analyze scripts for "
         "endpoints, secrets, and source maps). GET-only fetch; off by default.",
     ),
+    auth: bool = typer.Option(
+        False,
+        "--auth/--no-auth",
+        help="Also run the Authentication agent (login / registration / forgot / "
+        "admin workflows). Intrusive: additionally requires RECON_AUTH__AUTHORIZED=1 "
+        "and RECON_AUTH__USERNAME/PASSWORD; off by default.",
+    ),
 ) -> None:
     """Run the passive reconnaissance workflow end-to-end."""
     code = asyncio.run(
@@ -234,6 +246,7 @@ def passive_recon(
             network=network,
             api=api,
             js=js,
+            auth=auth,
         )
     )
     raise typer.Exit(code)
@@ -433,6 +446,38 @@ def js_analysis(
             target, report_format, out, browser=with_browser, network=True, api=True, js=True
         )
     )
+    raise typer.Exit(code)
+
+
+@app.command("auth")
+def auth(
+    target: str = typer.Argument(..., help="Authorized domain or host to authenticate against."),
+    report_format: str = typer.Option(
+        "markdown", "--report-format", "-f", help="markdown | html | json"
+    ),
+    out: pathlib.Path | None = typer.Option(
+        None, "--out", "-o", help="Write the report to this file instead of stdout."
+    ),
+) -> None:
+    """Run the workflow with the Authentication agent enabled (Browser required).
+
+    Authentication is **intrusive** and behind a *two-key* posture. This command
+    turns the agent on (the first key) and enables the Browser agent so login /
+    admin URLs are discovered; it actually submits credentials only when the
+    **second** key and the engagement gate are also satisfied:
+
+      * ``RECON_AUTH__AUTHORIZED=1`` — explicit acknowledgment that you are
+        permitted to submit credentials to the target, and
+      * ``RECON_AUTH__USERNAME`` / ``RECON_AUTH__PASSWORD`` (and optionally
+        ``RECON_AUTH__EMAIL``) — the credentials, read from the environment and
+        never logged, and
+      * the target passes the authorization gate.
+
+    Captured session cookies are held in episodic memory for downstream reuse; the
+    report shows only workflow outcomes and cookie names. Without the second key
+    the step is a clean no-op.
+    """
+    code = asyncio.run(_execute(target, report_format, out, browser=True, auth=True))
     raise typer.Exit(code)
 
 

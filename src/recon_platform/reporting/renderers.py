@@ -302,6 +302,27 @@ class MarkdownRenderer:
                     lines.append(f"- `{m.value}`")
                 lines.append("")
 
+        # Authentication (Phase 9) — only when the auth agent produced sessions.
+        sessions = [a for a in bundle.assets if a.type == AssetType.SESSION]
+        if sessions:
+            lines.append("## Authentication")
+            lines.append("")
+            lines.append(
+                "> Credentials are never shown; only workflow outcomes and captured "
+                "cookie names are reported (values stay in episodic memory)."
+            )
+            lines.append("")
+            for s in sessions[:40]:
+                wf = s.attributes.get("workflow", "?")
+                outcome = "✓" if s.attributes.get("success") else "✗"
+                url = s.attributes.get("url", "")
+                reason = s.attributes.get("reason", "")
+                lines.append(f"- [{outcome}] **{wf}** `{url}` — {reason}")
+                names = s.attributes.get("cookie_names") or []
+                if names:
+                    lines.append(f"  - session cookies: {', '.join(names)}")
+            lines.append("")
+
         # Appendix: reasoning trace
         lines.append("## Appendix — Reasoning Trace")
         lines.append("")

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 
-from pydantic import Field
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -253,6 +253,41 @@ class JSAnalysisSettings(BaseSettings):
     max_bytes: int = 2_000_000
 
 
+class AuthSettings(BaseSettings):
+    """Authentication-workflow agent configuration (Phase 9).
+
+    **Off by default** and behind a *two-key* posture, because authenticating is
+    active/intrusive: ``enabled`` turns the agent on, and ``authorized`` is a
+    separate explicit acknowledgment that the operator is permitted to submit
+    credentials to the target. Workflows run only when **both** are true *and* the
+    target passes the authorization gate.
+
+    Credentials are supplied via the environment (never committed) and held as
+    ``SecretStr`` so they are masked in logs/reprs; the agent additionally masks
+    them in reasoning traces and never writes them to the graph or reports.
+    """
+
+    model_config = SettingsConfigDict(env_prefix="RECON_AUTH__")
+
+    enabled: bool = False
+    # Second safety gate: explicit authorization to submit credentials.
+    authorized: bool = False
+    # Credentials (env-driven; SecretStr masks them in logs/reprs).
+    username: str = ""
+    password: SecretStr = SecretStr("")
+    email: str = ""
+    # Which workflows to attempt.
+    attempt_login: bool = True
+    attempt_registration: bool = False
+    attempt_forgot_password: bool = False
+    probe_admin: bool = True
+    # Optional explicit URLs (else discovered from the knowledge graph).
+    login_url: str = ""
+    register_url: str = ""
+    # Cap how many candidate URLs each workflow tries.
+    max_urls: int = 5
+
+
 class Settings(BaseSettings):
     """Root settings object — the single source of truth for configuration."""
 
@@ -274,6 +309,7 @@ class Settings(BaseSettings):
     network: NetworkSettings = Field(default_factory=NetworkSettings)
     api_discovery: APIDiscoverySettings = Field(default_factory=APIDiscoverySettings)
     js_analysis: JSAnalysisSettings = Field(default_factory=JSAnalysisSettings)
+    auth: AuthSettings = Field(default_factory=AuthSettings)
 
     # Engagement guardrail: when true, targets must pass the authorization gate.
     authorized_only: bool = True

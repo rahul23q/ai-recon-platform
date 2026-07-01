@@ -20,6 +20,7 @@ from recon_platform.agents import (
     ActiveReconAgent,
     AnalysisAgent,
     APIDiscoveryAgent,
+    AuthenticationAgent,
     BrowserAgent,
     DesktopAgent,
     JSAnalysisAgent,
@@ -71,6 +72,9 @@ class ReconOrchestrator:
             self._bus, self._memory, self._llm, self._graph, self._settings
         )
         self._active = ActiveReconAgent(
+            self._bus, self._memory, self._llm, self._graph, self._settings
+        )
+        self._auth = AuthenticationAgent(
             self._bus, self._memory, self._llm, self._graph, self._settings
         )
         self._js = JSAnalysisAgent(
@@ -199,6 +203,22 @@ class ReconOrchestrator:
         state.assets += assets
         state.relations += relations
 
+    async def _step_auth(self, state: RunState) -> None:
+        """Optional authentication step (after active recon, before JS analysis).
+
+        Active/intrusive: it submits credentials, so it runs behind a two-key
+        authorization gate and no-ops cleanly when auth is disabled, unauthorized,
+        or no browser backend is present. It runs after the collectors so login /
+        admin URLs are already discovered; captured sessions flow to episodic
+        memory (cookie values) and a masked SESSION asset (names only).
+        """
+        if not self._settings.auth.enabled:
+            return
+        await self._emit("step", name="authentication")
+        assets, relations = await self._auth.run_auth(state.engagement)
+        state.assets += assets
+        state.relations += relations
+
     async def _step_js(self, state: RunState) -> None:
         """Optional JavaScript-analysis step (after active recon, before network).
 
@@ -296,6 +316,7 @@ class ReconOrchestrator:
         await self._step_verify(state)
         await self._step_desktop(state)
         await self._step_active(state)
+        await self._step_auth(state)
         await self._step_js(state)
         await self._step_network(state)
         await self._step_api(state)
@@ -346,6 +367,10 @@ class ReconOrchestrator:
             await self._step_active(s["state"])
             return s
 
+        async def auth_node(s: dict) -> dict:
+            await self._step_auth(s["state"])
+            return s
+
         async def js_node(s: dict) -> dict:
             await self._step_js(s["state"])
             return s
@@ -374,6 +399,7 @@ class ReconOrchestrator:
         builder.add_node("verification", verify_node)
         builder.add_node("desktop", desktop_node)
         builder.add_node("active_recon", active_node)
+        builder.add_node("authentication", auth_node)
         builder.add_node("js_analysis", js_node)
         builder.add_node("network", network_node)
         builder.add_node("api_discovery", api_node)
@@ -386,7 +412,8 @@ class ReconOrchestrator:
         builder.add_edge("vision", "verification")
         builder.add_edge("verification", "desktop")
         builder.add_edge("desktop", "active_recon")
-        builder.add_edge("active_recon", "js_analysis")
+        builder.add_edge("active_recon", "authentication")
+        builder.add_edge("authentication", "js_analysis")
         builder.add_edge("js_analysis", "network")
         builder.add_edge("network", "api_discovery")
         builder.add_edge("api_discovery", "analyze")

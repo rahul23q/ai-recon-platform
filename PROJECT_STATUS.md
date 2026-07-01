@@ -6,11 +6,11 @@
 | | |
 |---|---|
 | **Project** | recon-platform — AI-powered Web App Security Reconnaissance |
-| **Current version** | `0.8.0` |
-| **Current phase** | **Phase 8 — JavaScript Analysis ✅ Completed** |
-| **Next milestone** | **Phase 9 — Authentication Workflows** |
-| **Last updated** | 2026-07-01 |
-| **Quality gates** | ✅ `ruff check` clean; `pytest` 117/118 (all 14 new JS-analysis tests green, plus the 17 API-discovery + 18 network tests). The same **pre-existing** verification test (`test_agreement_missing_reported_as_verified`) still fails on HEAD, unrelated to Phase 8 — see *Known issues* below. |
+| **Current version** | `0.9.0` |
+| **Current phase** | **Phase 9 — Authentication Workflows ✅ Completed** |
+| **Next milestone** | **Phase 10 — Persistence & State** |
+| **Last updated** | 2026-07-02 |
+| **Quality gates** | ✅ `ruff check` clean; `pytest` 129/130 (all 12 new authentication tests green). The same **pre-existing** verification test (`test_agreement_missing_reported_as_verified`) still fails on HEAD, unrelated to Phase 9 — see *Known issues* below. |
 
 ---
 
@@ -433,13 +433,61 @@ Discovery → Analysis → Reporting.
 
 ---
 
-## ⏭️ Next milestone — Phase 9: Authentication Workflows
+## ✅ Phase 9 — Authentication Workflows (Completed)
 
-Login, registration, forgot-password, and admin-panel workflows with secure
-credential handling; capture authenticated sessions for downstream agents. See
-[ROADMAP.md](ROADMAP.md) for the full phase plan.
+Added an **Authentication agent** that drives login, registration,
+forgot-password, and admin-panel workflows and captures authenticated sessions,
+behind the existing `Agent` Protocol and orchestrator with **zero rewrites** of
+earlier layers. Authenticating is **active/intrusive** (it submits credentials),
+so — like active recon — it sits behind a *two-key* posture (`enabled` +
+`authorized`) plus the engagement gate. Opt-in and off by default; degrades to a
+clean no-op when disabled, unauthorized, or with no browser backend. The pipeline
+is now Planner → Recon → Browser → Vision → Verification → Desktop → Active Recon →
+**Authentication** → JS Analysis → Network → API Discovery → Analysis → Reporting.
 
-**Entry criteria:** Phase 8 green (met). **Do not** restart earlier phases or
+### Implemented features
+
+- **`auth/` infrastructure** with a Playwright-free, hermetically-testable core:
+  pure form heuristics (`forms.py` — field classification, username/email/
+  password/submit location, login-success detection), candidate-URL discovery from
+  the graph (`discovery.py` — login/register/forgot/admin paths),
+  `SecretStr`-backed credential handling with masking (`credentials.py`), value
+  objects (`models.py` — `AuthResult`, `CapturedSession`), and a narrow `AuthPage`
+  **protocol seam** (`page.py`) with a Playwright adapter + an `open_auth_page`
+  factory the agent and tests drive.
+- **Four workflows** + a `build_workflows` factory (per-workflow toggles):
+  `login`, `registration`, `forgot_password`, and `admin_probe`. They call only
+  the `AuthPage` seam and the pure heuristics, so they run identically against the
+  real browser and the test fake; every page interaction is failure-wrapped.
+- **`AuthenticationAgent`** (role `AUTHENTICATION`): two-key + gate skip; discovers
+  candidate URLs, opens the browser via the seam, runs the workflows, and captures
+  sessions to **episodic memory** (cookie values, for downstream reuse) + a masked
+  **`SESSION`** asset (cookie names only). Credentials are masked in traces and
+  never written to the graph or report.
+- **Orchestration**: an independent `authentication` step (sequential + LangGraph
+  node) after active recon and before JS analysis — the Planner's 3-task plan is
+  untouched.
+- **Analysis & reporting**: additive rules for admin panels reachable without
+  authentication (HIGH), credentials submitted over cleartext HTTP (HIGH), and a
+  workflow summary; a new "Authentication" report section (outcomes + cookie
+  names only, with an explicit "credentials never shown" note).
+- **Surfaces**: `AuthenticationPlugin` in the MCP catalogue (descriptor-only —
+  the real flow needs the live agent), `recon passive-recon --auth`, `recon auth
+  <target>`, an API `auth` flag, and `RECON_AUTH__*` settings.
+- **Quality**: 12 new hermetic authentication tests (browser faked via the
+  `AuthPage` seam; a test asserts credentials never appear in the report); `ruff
+  check` clean; default offline run verified unchanged.
+
+---
+
+## ⏭️ Next milestone — Phase 10: Persistence & State
+
+Durable backends behind the existing Protocols (Redis working memory + bus,
+PostgreSQL long-term store, SQLite local, full session history) — swappable via
+`bootstrap.py` with zero agent changes. See [ROADMAP.md](ROADMAP.md) for the full
+phase plan.
+
+**Entry criteria:** Phase 9 green (met). **Do not** restart earlier phases or
 regenerate completed code — extend via the existing seams.
 
 ---
@@ -448,6 +496,19 @@ regenerate completed code — extend via the existing seams.
 
 Add dated entries here as work proceeds. Newest first.
 
+- **2026-07-02** — Phase 9 (Authentication Workflows) completed and released as
+  `v0.9.0`. An Authentication agent drives login / registration / forgot-password
+  / admin-probe workflows through a narrow, Playwright-free `AuthPage` seam (pure
+  form heuristics + candidate-URL discovery keep the logic hermetically testable),
+  capturing authenticated sessions to episodic memory (cookie values) and a masked
+  `SESSION` asset (cookie names only). Intrusive → two-key posture (`enabled` +
+  `authorized`) + engagement gate; credentials are `SecretStr`, masked everywhere,
+  and never written to the graph/logs/report. Additive analysis rules (admin
+  exposed unauthenticated, credentials over cleartext HTTP, workflow summary) and
+  an "Authentication" report section. Pipeline is now … → Active Recon →
+  Authentication → JS Analysis → Network → API Discovery → Analysis → Reporting.
+  12 new hermetic tests (browser faked), `ruff check` clean. (The same pre-existing
+  verification test still fails on HEAD, unrelated to this work.)
 - **2026-07-01** — Phase 8 (JavaScript Analysis) completed and released as
   `v0.8.0`. A JS-Analysis agent maps the client-side attack surface: it passively
   fetches (GET-only) the scripts the target serves and extracts endpoints,

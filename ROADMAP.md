@@ -17,8 +17,8 @@ the established Protocol seams (agents, tools, renderers, bus, memory).
 | 6 | Network Agent | ✅ |
 | 7 | API Discovery Agent | ✅ |
 | 8 | JavaScript Analysis | ✅ |
-| 9 | Authentication Workflows | 🔜 |
-| 10 | Persistence & State | ⏳ |
+| 9 | Authentication Workflows | ✅ |
+| 10 | Persistence & State | 🔜 |
 | 11 | Vector Memory & Semantic Recall | ⏳ |
 | 12 | Knowledge-Graph Agent & Visualization | ⏳ |
 | 13 | Live Dashboard | ⏳ |
@@ -179,10 +179,30 @@ Discovery → Analysis → Reporting.
 > Analysis → Reporting (JS runs first so its endpoints feed traffic
 > classification and API characterization).
 
-## Phase 9 — Authentication Workflows ⏳
+## Phase 9 — Authentication Workflows ✅
 
-Login, registration, forgot-password, and admin-panel workflows with secure
-credential handling. Captures authenticated sessions for downstream agents.
+An **Authentication agent** that drives login, registration, forgot-password, and
+admin-panel workflows, wired behind the existing `Agent` Protocol and
+orchestrator. Delivered a Playwright-free, hermetically-testable core — pure form
+heuristics (`auth/forms.py`: field classification, form location, login-success
+detection), candidate-URL discovery from the graph (`auth/discovery.py`),
+`SecretStr`-backed credential handling with masking (`auth/credentials.py`), and a
+narrow `AuthPage` protocol seam (`auth/page.py`) with a Playwright adapter — plus
+four workflows (`login`, `registration`, `forgot_password`, `admin_probe`).
+Authenticating is **active/intrusive**, so the agent sits behind a *two-key*
+posture (`enabled` + `authorized`) plus the engagement gate, exactly like active
+recon. Captured sessions flow to episodic memory (cookie **values**, for
+downstream reuse) and a masked `SESSION` asset (cookie **names** only) — credentials
+never touch the graph, logs, or reports. Additive analysis rules (admin exposed
+without auth, credentials over cleartext HTTP, workflow summary) and an
+"Authentication" report section surface the outcomes. Opt-in and off by default,
+degrading to a clean no-op when disabled, unauthorized, or with no browser. The
+pipeline is now Planner → Recon → Browser → Vision → Verification → Desktop →
+Active Recon → **Authentication** → JS Analysis → Network → API Discovery →
+Analysis → Reporting.
+
+> Pipeline is now … → Active Recon → **Authentication** → JS Analysis → Network →
+> API Discovery → Analysis → Reporting.
 
 ## Phase 10 — Persistence & State ⏳
 

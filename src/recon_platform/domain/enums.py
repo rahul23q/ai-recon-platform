@@ -27,6 +27,7 @@ class AgentRole(StrEnum):
     NETWORK = "network"
     API = "api"
     JS_ANALYSIS = "js_analysis"
+    AUTHENTICATION = "authentication"
     HUMAN = "human"
 
 
@@ -137,6 +138,12 @@ class AssetType(StrEnum):
     # original client-side source. Endpoints/secrets extracted from JS reuse the
     # existing ENDPOINT / SECRET types (tagged ``attributes["via"]="js"``).
     SOURCE_MAP = "source_map"
+    # Authentication assets (Phase 9 — Authentication agent). SESSION records one
+    # attempted auth workflow (login / registration / forgot-password / admin
+    # probe): its outcome in ``attributes["success"]`` and captured cookie names
+    # in ``attributes["cookie_names"]`` — the cookie *values* are never stored on
+    # the asset (kept in episodic memory for downstream reuse) so reports stay safe.
+    SESSION = "session"
 
 
 class RelationType(StrEnum):
