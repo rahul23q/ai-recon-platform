@@ -6,11 +6,11 @@
 | | |
 |---|---|
 | **Project** | recon-platform — AI-powered Web App Security Reconnaissance |
-| **Current version** | `0.5.0` |
-| **Current phase** | **Phase 5 — Active Recon & Tool Plugins ✅ Completed** |
-| **Next milestone** | **Phase 6 — Network Agent** |
-| **Last updated** | 2026-06-30 |
-| **Quality gates** | ✅ `ruff check` clean; `pytest` 68/69 (all 22 new active-recon tests green). One **pre-existing** verification test (`test_agreement_missing_reported_as_verified`) fails on HEAD, unrelated to Phase 5 — see *Known issues* below. |
+| **Current version** | `0.6.0` |
+| **Current phase** | **Phase 6 — Network Agent ✅ Completed** |
+| **Next milestone** | **Phase 7 — API Discovery Agent** |
+| **Last updated** | 2026-07-01 |
+| **Quality gates** | ✅ `ruff check` clean; `pytest` 86/87 (all 18 new network tests green). The same **pre-existing** verification test (`test_agreement_missing_reported_as_verified`) still fails on HEAD, unrelated to Phase 6 — see *Known issues* below. |
 
 ---
 
@@ -302,13 +302,57 @@ pipeline is now Planner → Recon → Browser → Vision → Verification → De
 
 ---
 
-## ⏭️ Next milestone — Phase 6: Network Agent
+## ✅ Phase 6 — Network Agent (Completed)
 
-Deep analysis of requests/responses: header hygiene, JWT inspection, GraphQL and
-REST traffic, and WebSocket message review, correlating network observations into
-findings. See [ROADMAP.md](ROADMAP.md) for the full phase plan.
+Added a **Network agent** performing deep analysis of already-captured
+request/response data, behind the existing `Agent` Protocol and orchestrator with
+**zero rewrites** of earlier layers. Unlike active recon it is **entirely
+passive** — it issues no new I/O, has no external dependency, and simply
+correlates what earlier agents observed. Opt-in and off by default, degrading to a
+clean no-op when disabled. The pipeline is now Planner → Recon → Browser → Vision
+→ Verification → Desktop → Active Recon → **Network** → Analysis → Reporting.
 
-**Entry criteria:** Phase 5 green (met). **Do not** restart earlier phases or
+### Implemented features
+
+- **`network/` infrastructure** mirroring `recon/` / `vision/`: a dependency-free
+  detection layer (`detectors.py`) carrying all the logic as pure, directly
+  unit-testable functions — JWT decode (header+payload only; signatures are never
+  verified) with weakness flagging (`alg=none`, symmetric alg, missing/past
+  `exp`, sensitive claims), GraphQL/REST endpoint classification, `ws://`/`wss://`
+  detection, and CORS-hygiene checks (wildcard/`null` origin, credentialed
+  wildcard) — plus a `NetworkModule` base and a read-only `NetworkContext`
+  snapshot.
+- **Four network modules** + a `build_network_modules` factory (honouring the
+  per-capability toggles): `jwt_inspection`, `api_classification`,
+  `websocket_review`, and `cors_hygiene`. They read the headers, cookies, tokens
+  (`SECRET`), and endpoints/URLs the earlier agents put in the graph and emit new
+  `JWT` / `API_ENDPOINT` / `WEBSOCKET` assets with `CONTAINS` / `REFERENCES`
+  relations; CORS issues merge onto the analyzed `HEADER` asset (no new asset type
+  needed). Every module captures errors into `result.errors` and never raises.
+- **`NetworkAgent`** snapshots the graph, runs the modules, merges results back,
+  records a trace per module, and emits `network.*` A2A events for the dashboard.
+- **Orchestration**: an independent `network` step (sequential + LangGraph node)
+  after active recon and before analysis — the Planner's 3-task plan is untouched.
+- **Analysis & reporting**: additive rules for weak JWTs, insecure CORS, exposed
+  GraphQL endpoints, and unencrypted WebSockets, plus a network-traffic surface
+  summary; a new "Network Analysis" report section (JWTs, CORS issues, API
+  traffic, WebSocket endpoints).
+- **Surfaces**: `NetworkPlugin` in the MCP catalogue (registered when enabled),
+  `recon passive-recon --network`, `recon network <target>`, an API `network`
+  flag, and `RECON_NETWORK__*` settings.
+- **Quality**: 18 new hermetic network tests (no network, no external deps);
+  `ruff check` clean; default offline run verified unchanged.
+
+---
+
+## ⏭️ Next milestone — Phase 7: API Discovery Agent
+
+Discover and characterize APIs across REST, SOAP, GraphQL, and gRPC — schema
+inference, endpoint enumeration, and auth-scheme detection, building on the
+network agent's traffic classification. See [ROADMAP.md](ROADMAP.md) for the full
+phase plan.
+
+**Entry criteria:** Phase 6 green (met). **Do not** restart earlier phases or
 regenerate completed code — extend via the existing seams.
 
 ---
@@ -317,6 +361,18 @@ regenerate completed code — extend via the existing seams.
 
 Add dated entries here as work proceeds. Newest first.
 
+- **2026-07-01** — Phase 6 (Network Agent) completed and released as `v0.6.0`. A
+  passive Network agent correlates already-captured request/response data — JWT
+  inspection (unsigned/symmetric/expired/sensitive-claim flags), CORS hygiene
+  (wildcard / credentialed-wildcard / null origin), GraphQL/REST traffic
+  classification, and WebSocket review — over a dependency-free detection layer and
+  four modules, emitting new `JWT` / `API_ENDPOINT` / `WEBSOCKET` assets (CORS
+  issues merge onto the analyzed `HEADER`). Additive analysis rules and a "Network
+  Analysis" report section surface the findings. Passive (no new I/O) and off by
+  default; pipeline is now Planner → Recon → Browser → Vision → Verification →
+  Desktop → Active Recon → Network → Analysis → Reporting. 18 new hermetic tests,
+  `ruff check` clean. (The same pre-existing verification test still fails on HEAD,
+  unrelated to this work.)
 - **2026-06-30** — Phase 5 (Active Recon & Tool Plugins) completed and released
   as `v0.5.0`. An Active-Recon agent integrates ten external security tools
   (httpx, subfinder, amass, naabu, nmap, katana, gau, dirsearch, ffuf, nuclei)

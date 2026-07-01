@@ -4,6 +4,57 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.6.0] — 2026-07-01
+
+### Phase 6 — Network Agent (Completed)
+
+A **Network agent** that performs deep analysis of already-captured
+request/response data, wired behind the existing `Agent` Protocol and orchestrator
+without rewriting any earlier layer. Unlike active recon it is **entirely
+passive** — it issues no new I/O and has no external dependency; it simply
+correlates what earlier agents observed. Opt-in and off by default, degrading to a
+clean no-op when disabled. The pipeline is now Planner → Recon → Browser → Vision
+→ Verification → Desktop → Active Recon → **Network** → Analysis → Reporting.
+
+#### Added
+
+- **Network infrastructure** (`network/`): a dependency-free detection layer
+  (`detectors.py`) carrying all logic as pure, directly unit-testable functions —
+  JWT decode (header+payload only; **signatures are never verified**) with
+  weakness flagging (`alg=none`, symmetric algorithms, missing/past `exp`,
+  sensitive claims), GraphQL/REST endpoint classification, `ws://`/`wss://`
+  detection, and CORS-hygiene checks (wildcard / `null` origin, and the
+  exploitable credentialed-wildcard case) — plus a `NetworkModule` base and a
+  read-only `NetworkContext` snapshot.
+- **Four network modules** + a `build_network_modules` factory (honouring the
+  per-capability toggles): `jwt_inspection`, `api_classification`,
+  `websocket_review`, and `cors_hygiene`. They read the headers, cookies, tokens
+  (`SECRET`), and endpoints/URLs already in the knowledge graph and emit new
+  `JWT` / `API_ENDPOINT` / `WEBSOCKET` assets with `CONTAINS` / `REFERENCES`
+  relations; CORS issues merge onto the analyzed `HEADER` asset (no new asset type
+  needed). Modules are defensive — errors are captured in `result.errors`, never
+  raised.
+- **`NetworkAgent`** that snapshots the graph, runs the modules, merges results
+  back, records a reasoning trace per module, and emits `network.*` A2A events.
+- **Orchestration**: an independent `network` step (sequential + LangGraph node)
+  after active recon and before analysis — the Planner's 3-task plan is untouched.
+- **Analysis & reporting**: additive rules for weak JWTs, insecure CORS, exposed
+  GraphQL endpoints, and unencrypted WebSockets, plus a network-traffic surface
+  summary; a new "Network Analysis" report section.
+- **Surfaces**: `NetworkPlugin` in the MCP catalogue (registered when enabled),
+  `recon passive-recon --network`, `recon network <target>`, an API `network`
+  flag, and `RECON_NETWORK__*` settings.
+- **New domain types**: `AssetType.JWT` / `WEBSOCKET` / `API_ENDPOINT` and
+  `AgentRole.NETWORK`.
+
+#### Quality
+
+- 18 new hermetic tests (`tests/test_network.py`): detector unit tests, module
+  tests over a hand-built context, and a stubbed end-to-end run proving network
+  assets reach the graph, become findings, and render a report section.
+- `ruff check` clean. The pre-existing `test_agreement_missing_reported_as_verified`
+  failure on HEAD is unrelated to this work (see PROJECT_STATUS.md → Known issues).
+
 ## [0.5.0] — 2026-06-30
 
 ### Phase 5 — Active Recon & Tool Plugins (Completed)

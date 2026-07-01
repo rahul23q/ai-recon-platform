@@ -43,9 +43,13 @@ _force_utf8_streams()
 
 
 def _settings_for(
-    browser: bool, vision: bool = False, desktop: bool = False, active: bool = False
+    browser: bool,
+    vision: bool = False,
+    desktop: bool = False,
+    active: bool = False,
+    network: bool = False,
 ) -> Settings:
-    """Build a fresh Settings with the browser / vision / desktop / active agents toggled.
+    """Build a fresh Settings with the optional agents toggled.
 
     Vision analyzes the Browser agent's screenshots, so enabling vision implies
     enabling the browser too. The desktop agent is independent, but it can act on
@@ -55,12 +59,16 @@ def _settings_for(
     (``RECON_ACTIVE_RECON__AUTHORIZED``) and the engagement authorization gate are
     deliberately left to the environment — the flag alone never starts an intrusive
     scan. Without the second key the active step records a clean skip.
+
+    ``network`` turns on the passive network-analysis agent (JWT / CORS / API /
+    WebSocket correlation over already-captured data); it issues no new I/O.
     """
     settings = Settings()
     settings.browser.enabled = browser or vision
     settings.vision.enabled = vision
     settings.desktop.enabled = desktop
     settings.active_recon.enabled = active
+    settings.network.enabled = network
     return settings
 
 
@@ -81,20 +89,23 @@ async def _execute(
     vision: bool = False,
     desktop: bool = False,
     active: bool = False,
+    network: bool = False,
 ) -> int:
-    # An explicit Settings (built only when needed) lets the browser / vision /
-    # desktop / active flags flip the otherwise-default-off agents without touching
-    # the cached process-wide settings singleton.
+    # An explicit Settings (built only when needed) lets the optional-agent flags
+    # flip the otherwise-default-off agents without touching the cached
+    # process-wide settings singleton.
     container = (
-        build_container(_settings_for(browser, vision, desktop, active))
-        if (browser or vision or desktop or active)
+        build_container(_settings_for(browser, vision, desktop, active, network))
+        if (browser or vision or desktop or active or network)
         else build_container()
     )
     orch = ReconOrchestrator(container)
     engagement = EngagementContext(target=target, workflow=WorkflowType.PASSIVE_RECON)
 
     label = (
-        "Active recon"
+        "Network recon"
+        if network
+        else "Active recon"
         if active
         else "Desktop recon"
         if desktop
@@ -180,6 +191,12 @@ def passive_recon(
         "nuclei, nmap, …). Intrusive: additionally requires "
         "RECON_ACTIVE_RECON__AUTHORIZED=1 and an authorized target; off by default.",
     ),
+    network: bool = typer.Option(
+        False,
+        "--network/--no-network",
+        help="Also run the Network agent (passive JWT / CORS / API / WebSocket "
+        "analysis over captured traffic). No new I/O; off by default.",
+    ),
 ) -> None:
     """Run the passive reconnaissance workflow end-to-end."""
     code = asyncio.run(
@@ -191,6 +208,7 @@ def passive_recon(
             vision=vision,
             desktop=desktop,
             active=active,
+            network=network,
         )
     )
     raise typer.Exit(code)
@@ -292,6 +310,37 @@ def active_recon(
     installed are skipped cleanly. Without the second key the step is a no-op.
     """
     code = asyncio.run(_execute(target, report_format, out, active=True))
+    raise typer.Exit(code)
+
+
+@app.command("network")
+def network(
+    target: str = typer.Argument(..., help="Authorized domain or host to analyze."),
+    report_format: str = typer.Option(
+        "markdown", "--report-format", "-f", help="markdown | html | json"
+    ),
+    out: pathlib.Path | None = typer.Option(
+        None, "--out", "-o", help="Write the report to this file instead of stdout."
+    ),
+    with_browser: bool = typer.Option(
+        True,
+        "--with-browser/--no-with-browser",
+        help="Also run the Browser agent so more request/response traffic is "
+        "captured for the Network agent to analyze (requires the 'browser' extra).",
+    ),
+) -> None:
+    """Run the workflow with the Network agent enabled.
+
+    The Network agent is a **passive** correlation layer: it inspects JWTs, CORS
+    headers, API traffic (GraphQL / REST), and WebSocket endpoints found in data
+    already captured by passive recon and the Browser agent — it issues no new
+    requests. Enabling the Browser agent (the default here) captures richer
+    traffic to analyze; pass ``--no-with-browser`` to analyze passive-recon data
+    only.
+    """
+    code = asyncio.run(
+        _execute(target, report_format, out, browser=with_browser, network=True)
+    )
     raise typer.Exit(code)
 
 

@@ -31,6 +31,8 @@ SOURCE_VISION = "vision"
 SOURCE_DESKTOP = "desktop"
 #: Observer tag for active-recon (external tool) findings.
 SOURCE_ACTIVE = "active-recon"
+#: Observer tag for network-analysis (request/response correlation) findings.
+SOURCE_NETWORK = "network"
 
 
 class AnalysisAgent(BaseAgent):
@@ -64,6 +66,9 @@ class AnalysisAgent(BaseAgent):
         findings += _stamp(self._desktop_automation(), [SOURCE_DESKTOP])
         findings += _stamp(self._active_recon_vulnerabilities(), [SOURCE_ACTIVE])
         findings += _stamp(self._active_recon_surface(), [SOURCE_ACTIVE])
+        findings += _stamp(self._network_jwt_weaknesses(), [SOURCE_NETWORK])
+        findings += _stamp(self._network_cors(), [SOURCE_NETWORK])
+        findings += _stamp(self._network_traffic_surface(), [SOURCE_NETWORK])
 
         findings.sort(key=lambda f: f.severity.rank, reverse=True)
 
@@ -741,6 +746,181 @@ class AnalysisAgent(BaseAgent):
                 confidence=0.85,
             )
         ]
+
+    # -- network rules (Phase 6) -------------------------------------------
+    def _network_jwt_weaknesses(self) -> list[Finding]:
+        """Flag decoded JWTs whose inspection surfaced weaknesses."""
+        jwts = self.graph.assets(AssetType.JWT)
+        weak = [j for j in jwts if j.attributes.get("issues")]
+        if not weak:
+            return []
+        # Rank severity by the worst issue seen: alg=none / expiry absence is the
+        # sharpest, sensitive-claim exposure the mildest.
+        severity = Severity.LOW
+        for j in weak:
+            issues = " ".join(str(i).lower() for i in j.attributes.get("issues", []))
+            if "alg=none" in issues:
+                severity = Severity.HIGH
+                break
+            if "never expires" in issues or "symmetric alg" in issues:
+                severity = Severity.MEDIUM
+        evidence = [
+            Evidence(
+                label=str(j.attributes.get("alg") or "jwt"),
+                detail="; ".join(str(i) for i in j.attributes.get("issues", [])),
+                data={"source": str(j.attributes.get("source_kind", ""))},
+            )
+            for j in weak[:20]
+        ]
+        return [
+            Finding(
+                title=f"Weak JSON Web Token(s) detected ({len(weak)})",
+                description=(
+                    f"{len(weak)} JWT(s) observed in traffic carry weaknesses "
+                    "(unsigned/symmetric algorithms, missing or past expiry, or "
+                    "sensitive claims). Tokens were decoded for inspection only; "
+                    "signatures were not verified."
+                ),
+                severity=severity,
+                category="authentication",
+                asset_keys=[j.key for j in weak],
+                evidence=evidence,
+                recommendation=(
+                    "Reject alg=none and enforce a strong asymmetric algorithm; set "
+                    "short-lived 'exp'; avoid placing sensitive data in token claims."
+                ),
+                references={
+                    "cwe": "CWE-347",
+                    "owasp": "A02:2021-Cryptographic Failures",
+                },
+                confidence=0.75,
+            )
+        ]
+
+    def _network_cors(self) -> list[Finding]:
+        """Dangerous CORS response-header configurations flagged by the agent."""
+        headers = [
+            h for h in self.graph.assets(AssetType.HEADER) if h.attributes.get("cors_issues")
+        ]
+        if not headers:
+            return []
+        all_issues: list[str] = []
+        for h in headers:
+            all_issues += [str(i) for i in h.attributes.get("cors_issues", [])]
+        # Credentialed wildcard is the exploitable case; grade it higher.
+        severity = (
+            Severity.HIGH
+            if any("with credentials" in i for i in all_issues)
+            else Severity.MEDIUM
+        )
+        return [
+            Finding(
+                title="Insecure CORS configuration",
+                description=(
+                    "The Access-Control-Allow-Origin policy is overly permissive: "
+                    + "; ".join(sorted(set(all_issues)))
+                    + "."
+                ),
+                severity=severity,
+                category="hardening",
+                asset_keys=[h.key for h in headers],
+                evidence=[
+                    Evidence(label=str(h.attributes.get("value", h.value)), detail=i)
+                    for h in headers
+                    for i in h.attributes.get("cors_issues", [])
+                ][:20],
+                recommendation=(
+                    "Reflect only an explicit allow-list of trusted origins; never "
+                    "combine a wildcard/null origin with Allow-Credentials: true."
+                ),
+                references={"owasp": "A05:2021-Security Misconfiguration", "cwe": "CWE-942"},
+                confidence=0.8,
+            )
+        ]
+
+    def _network_traffic_surface(self) -> list[Finding]:
+        """Insecure WebSockets + an informational API/WebSocket traffic summary."""
+        findings: list[Finding] = []
+
+        websockets = self.graph.assets(AssetType.WEBSOCKET)
+        insecure_ws = [w for w in websockets if not w.attributes.get("secure", False)]
+        if insecure_ws:
+            findings.append(
+                Finding(
+                    title=f"Unencrypted WebSocket endpoint(s) ({len(insecure_ws)})",
+                    description=(
+                        f"{len(insecure_ws)} WebSocket endpoint(s) use the plaintext "
+                        "ws:// scheme, exposing messages to interception and tampering."
+                    ),
+                    severity=Severity.MEDIUM,
+                    category="hardening",
+                    asset_keys=[w.key for w in insecure_ws],
+                    evidence=[Evidence(label="ws", detail=w.value) for w in insecure_ws[:20]],
+                    recommendation="Serve WebSockets over TLS (wss://) only.",
+                    references={"owasp": "A02:2021-Cryptographic Failures", "cwe": "CWE-319"},
+                    confidence=0.85,
+                )
+            )
+
+        api_endpoints = self.graph.assets(AssetType.API_ENDPOINT)
+        graphql = [a for a in api_endpoints if a.attributes.get("api_type") == "graphql"]
+        if graphql:
+            findings.append(
+                Finding(
+                    title=f"GraphQL endpoint(s) exposed ({len(graphql)})",
+                    description=(
+                        f"{len(graphql)} GraphQL endpoint(s) were identified in traffic. "
+                        "GraphQL services frequently permit schema introspection, "
+                        "revealing the full API surface."
+                    ),
+                    severity=Severity.LOW,
+                    category="attack-surface",
+                    asset_keys=[a.key for a in graphql],
+                    evidence=[Evidence(label="graphql", detail=a.value) for a in graphql[:20]],
+                    recommendation=(
+                        "Disable introspection in production and enforce query "
+                        "depth/complexity limits and authentication."
+                    ),
+                    references={"owasp": "API9:2023-Improper Inventory Management"},
+                    confidence=0.6,
+                )
+            )
+
+        if api_endpoints or websockets:
+            findings.append(
+                Finding(
+                    title=(
+                        f"Network traffic surface ({len(api_endpoints)} API endpoint(s), "
+                        f"{len(websockets)} WebSocket(s))"
+                    ),
+                    description=(
+                        "The Network agent correlated captured request/response data, "
+                        "classifying API traffic (GraphQL / REST) and WebSocket endpoints."
+                    ),
+                    severity=Severity.INFO,
+                    category="recon",
+                    asset_keys=[a.key for a in (api_endpoints + websockets)],
+                    evidence=(
+                        [
+                            Evidence(
+                                label=str(a.attributes.get("api_type", "api")),
+                                detail=a.value,
+                            )
+                            for a in api_endpoints[:15]
+                        ]
+                        + [
+                            Evidence(
+                                label="wss" if w.attributes.get("secure") else "ws",
+                                detail=w.value,
+                            )
+                            for w in websockets[:15]
+                        ]
+                    ),
+                    recommendation="Review the discovered API/WebSocket surface for exposure.",
+                    confidence=0.85,
+                )
+            )
+        return findings
 
     async def executive_summary(self, findings: list[Finding], target: str) -> str:
         counts: dict[str, int] = {}

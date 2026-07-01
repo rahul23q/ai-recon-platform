@@ -128,6 +128,23 @@ def build_container(settings: Settings | None = None) -> Container:
 
         manager.register(ActiveReconPlugin(build_active_tools(), _active_ctx_factory))
 
+    # Network modules register only when network analysis is enabled. They are
+    # pure, dependency-free correlators over data already in the graph, so
+    # registration pulls in nothing extra and issues no I/O.
+    if settings.network.enabled:
+        from recon_platform.network.base import NetworkContext
+        from recon_platform.network.modules import build_network_modules
+        from recon_platform.plugins.network import NetworkPlugin
+
+        n_target = settings.authorized_targets[0] if settings.authorized_targets else ""
+
+        def _network_ctx_factory() -> NetworkContext:
+            # Standalone (MCP) invocation gets an empty snapshot; during a full run
+            # the NetworkAgent supplies the graph assets itself.
+            return NetworkContext(n_target, settings)
+
+        manager.register(NetworkPlugin(build_network_modules(settings), _network_ctx_factory))
+
     container.register_instance(PluginManager, manager)
 
     return container

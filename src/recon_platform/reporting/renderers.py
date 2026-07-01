@@ -193,6 +193,48 @@ class MarkdownRenderer:
                     lines.append(f"- [{sev}] {name}" + (f" — `{matched}`" if matched else ""))
                 lines.append("")
 
+        # Network analysis (Phase 6) — only when the network agent produced assets.
+        jwts = [a for a in bundle.assets if a.type == AssetType.JWT]
+        api_endpoints = [a for a in bundle.assets if a.type == AssetType.API_ENDPOINT]
+        websockets = [a for a in bundle.assets if a.type == AssetType.WEBSOCKET]
+        cors = [a for a in bundle.assets if a.attributes.get("cors_issues")]
+        if jwts or api_endpoints or websockets or cors:
+            lines.append("## Network Analysis")
+            lines.append("")
+            if jwts:
+                lines.append(f"**JSON Web Tokens ({len(jwts)}):**")
+                for j in jwts[:30]:
+                    alg = j.attributes.get("alg") or "?"
+                    issues = j.attributes.get("issues") or []
+                    suffix = f" — {'; '.join(str(i) for i in issues)}" if issues else " — ok"
+                    lines.append(f"- `{j.value}` (alg={alg}){suffix}")
+                lines.append("")
+            if cors:
+                lines.append(f"**CORS misconfigurations ({len(cors)}):**")
+                for c in cors[:20]:
+                    for i in c.attributes.get("cors_issues", []):
+                        lines.append(f"- {i}")
+                lines.append("")
+            if api_endpoints:
+                by_type: dict[str, int] = {}
+                for a in api_endpoints:
+                    t = str(a.attributes.get("api_type", "api"))
+                    by_type[t] = by_type.get(t, 0) + 1
+                summary = ", ".join(f"{k}: {v}" for k, v in sorted(by_type.items()))
+                lines.append(f"**API traffic ({len(api_endpoints)}):** {summary}")
+                for a in api_endpoints[:30]:
+                    lines.append(f"- [{a.attributes.get('api_type', 'api')}] `{a.value}`")
+                lines.append("")
+            if websockets:
+                insecure = sum(1 for w in websockets if not w.attributes.get("secure"))
+                lines.append(
+                    f"**WebSocket endpoints ({len(websockets)}, {insecure} insecure):**"
+                )
+                for w in websockets[:30]:
+                    scheme = "wss" if w.attributes.get("secure") else "ws"
+                    lines.append(f"- [{scheme}] `{w.value}`")
+                lines.append("")
+
         # Appendix: reasoning trace
         lines.append("## Appendix — Reasoning Trace")
         lines.append("")

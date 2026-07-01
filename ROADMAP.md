@@ -14,8 +14,8 @@ the established Protocol seams (agents, tools, renderers, bus, memory).
 | 3 | Vision Agent | ✅ |
 | 4 | Desktop Automation Agent | ✅ |
 | 5 | Active Recon & Tool Plugins | ✅ |
-| 6 | Network Agent | 🔜 |
-| 7 | API Discovery Agent | ⏳ |
+| 6 | Network Agent | ✅ |
+| 7 | API Discovery Agent | 🔜 |
 | 8 | JavaScript Analysis | ⏳ |
 | 9 | Authentication Workflows | ⏳ |
 | 10 | Persistence & State | ⏳ |
@@ -116,11 +116,25 @@ tool binaries present. Deeper request/response analysis builds on this in Phase 
 > Pipeline is now Planner → Recon → Browser → Vision → Verification → Desktop →
 > **Active Recon** → Analysis → Reporting.
 
-## Phase 6 — Network Agent ⏳
+## Phase 6 — Network Agent ✅
 
-Deep analysis of requests/responses: header hygiene, JWT inspection, GraphQL and
-REST traffic, and WebSocket message review. Correlates network observations into
-findings.
+A **Network agent** performing deep analysis of already-captured request/response
+data, wired behind the existing `Agent` Protocol and orchestrator. Delivered a
+dependency-free detection layer (`network/detectors.py`: JWT decode/weakness
+flagging, GraphQL/REST endpoint classification, WebSocket detection, CORS-hygiene
+checks) and four `NetworkModule`s (`jwt_inspection`, `api_classification`,
+`websocket_review`, `cors_hygiene`) that correlate the headers, cookies, tokens,
+and endpoints already in the knowledge graph into new `JWT` / `API_ENDPOINT` /
+`WEBSOCKET` assets (CORS issues merge onto the analyzed `HEADER`). Additive
+analysis rules and a "Network Analysis" report section surface weak JWTs, insecure
+CORS, exposed GraphQL/REST traffic, and unencrypted WebSockets. It is **passive**
+(no new I/O) and opt-in, degrading to a clean no-op when disabled. The pipeline is
+now Planner → Recon → Browser → Vision → Verification → Desktop → Active Recon →
+**Network** → Analysis → Reporting. Deeper API characterization builds on this in
+Phase 7.
+
+> Pipeline is now Planner → Recon → Browser → Vision → Verification → Desktop →
+> Active Recon → **Network** → Analysis → Reporting.
 
 ## Phase 7 — API Discovery Agent ⏳
 
