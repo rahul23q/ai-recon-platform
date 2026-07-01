@@ -48,6 +48,7 @@ def _settings_for(
     desktop: bool = False,
     active: bool = False,
     network: bool = False,
+    api: bool = False,
 ) -> Settings:
     """Build a fresh Settings with the optional agents toggled.
 
@@ -69,6 +70,7 @@ def _settings_for(
     settings.desktop.enabled = desktop
     settings.active_recon.enabled = active
     settings.network.enabled = network
+    settings.api_discovery.enabled = api
     return settings
 
 
@@ -90,20 +92,23 @@ async def _execute(
     desktop: bool = False,
     active: bool = False,
     network: bool = False,
+    api: bool = False,
 ) -> int:
     # An explicit Settings (built only when needed) lets the optional-agent flags
     # flip the otherwise-default-off agents without touching the cached
     # process-wide settings singleton.
     container = (
-        build_container(_settings_for(browser, vision, desktop, active, network))
-        if (browser or vision or desktop or active or network)
+        build_container(_settings_for(browser, vision, desktop, active, network, api))
+        if (browser or vision or desktop or active or network or api)
         else build_container()
     )
     orch = ReconOrchestrator(container)
     engagement = EngagementContext(target=target, workflow=WorkflowType.PASSIVE_RECON)
 
     label = (
-        "Network recon"
+        "API discovery"
+        if api
+        else "Network recon"
         if network
         else "Active recon"
         if active
@@ -197,6 +202,12 @@ def passive_recon(
         help="Also run the Network agent (passive JWT / CORS / API / WebSocket "
         "analysis over captured traffic). No new I/O; off by default.",
     ),
+    api: bool = typer.Option(
+        False,
+        "--api/--no-api",
+        help="Also run the API-Discovery agent (passive REST / GraphQL / SOAP / "
+        "gRPC characterization + auth-scheme detection). No new I/O; off by default.",
+    ),
 ) -> None:
     """Run the passive reconnaissance workflow end-to-end."""
     code = asyncio.run(
@@ -209,6 +220,7 @@ def passive_recon(
             desktop=desktop,
             active=active,
             network=network,
+            api=api,
         )
     )
     raise typer.Exit(code)
@@ -340,6 +352,39 @@ def network(
     """
     code = asyncio.run(
         _execute(target, report_format, out, browser=with_browser, network=True)
+    )
+    raise typer.Exit(code)
+
+
+@app.command("api-discovery")
+def api_discovery(
+    target: str = typer.Argument(..., help="Authorized domain or host to analyze."),
+    report_format: str = typer.Option(
+        "markdown", "--report-format", "-f", help="markdown | html | json"
+    ),
+    out: pathlib.Path | None = typer.Option(
+        None, "--out", "-o", help="Write the report to this file instead of stdout."
+    ),
+    with_browser: bool = typer.Option(
+        True,
+        "--with-browser/--no-with-browser",
+        help="Also run the Browser agent so more endpoints/headers are captured for "
+        "the API-Discovery agent to characterize (requires the 'browser' extra).",
+    ),
+) -> None:
+    """Run the workflow with the API-Discovery agent enabled.
+
+    The API-Discovery agent is a **passive** characterization layer: it infers
+    REST APIs (base path / version / resources / parameters), discovers GraphQL /
+    SOAP / gRPC services, and detects authentication schemes from endpoints and
+    headers already captured by passive recon, the Browser agent, and the Network
+    agent — it issues no new requests. Enabling the Browser agent (the default
+    here) captures a richer surface; pass ``--no-with-browser`` to analyze
+    passive-recon data only. The Network agent is enabled alongside it so its
+    GraphQL/REST traffic classification feeds discovery.
+    """
+    code = asyncio.run(
+        _execute(target, report_format, out, browser=with_browser, network=True, api=True)
     )
     raise typer.Exit(code)
 

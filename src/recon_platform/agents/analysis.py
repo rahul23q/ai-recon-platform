@@ -33,6 +33,8 @@ SOURCE_DESKTOP = "desktop"
 SOURCE_ACTIVE = "active-recon"
 #: Observer tag for network-analysis (request/response correlation) findings.
 SOURCE_NETWORK = "network"
+#: Observer tag for API-discovery findings.
+SOURCE_API = "api-discovery"
 
 
 class AnalysisAgent(BaseAgent):
@@ -69,6 +71,8 @@ class AnalysisAgent(BaseAgent):
         findings += _stamp(self._network_jwt_weaknesses(), [SOURCE_NETWORK])
         findings += _stamp(self._network_cors(), [SOURCE_NETWORK])
         findings += _stamp(self._network_traffic_surface(), [SOURCE_NETWORK])
+        findings += _stamp(self._api_inventory(), [SOURCE_API])
+        findings += _stamp(self._api_weak_auth(), [SOURCE_API])
 
         findings.sort(key=lambda f: f.severity.rank, reverse=True)
 
@@ -918,6 +922,110 @@ class AnalysisAgent(BaseAgent):
                     ),
                     recommendation="Review the discovered API/WebSocket surface for exposure.",
                     confidence=0.85,
+                )
+            )
+        return findings
+
+    # -- api-discovery rules (Phase 7) -------------------------------------
+    def _api_inventory(self) -> list[Finding]:
+        """Informational inventory of the APIs discovered across all styles."""
+        apis = self.graph.assets(AssetType.API)
+        params = self.graph.assets(AssetType.API_PARAMETER)
+        schemes = self.graph.assets(AssetType.AUTH_SCHEME)
+        if not apis:
+            return []
+        by_style: dict[str, int] = {}
+        for a in apis:
+            style = str(a.attributes.get("style", "rest"))
+            by_style[style] = by_style.get(style, 0) + 1
+        style_summary = ", ".join(f"{k}: {v}" for k, v in sorted(by_style.items()))
+        scheme_names = sorted({s.value for s in schemes})
+        evidence: list[Evidence] = []
+        for a in apis[:25]:
+            detail = str(a.attributes.get("style", "rest"))
+            resources = a.attributes.get("resources") or []
+            if resources:
+                detail += " · resources: " + ", ".join(str(r) for r in resources[:8])
+            evidence.append(Evidence(label=a.value, detail=detail))
+        return [
+            Finding(
+                title=f"API surface discovered ({len(apis)} API(s), {style_summary})",
+                description=(
+                    f"{len(apis)} API(s) were characterized from captured traffic "
+                    f"({style_summary}); {len(params)} request parameter(s) and "
+                    f"{len(scheme_names)} auth scheme(s) "
+                    + (f"({', '.join(scheme_names)}) " if scheme_names else "")
+                    + "were inferred. Review for undocumented or unintended exposure."
+                ),
+                severity=Severity.INFO,
+                category="attack-surface",
+                asset_keys=[a.key for a in apis],
+                evidence=evidence,
+                recommendation=(
+                    "Confirm each API is intended, documented, authenticated, and "
+                    "rate-limited; retire shadow/undocumented endpoints."
+                ),
+                references={"owasp": "API9:2023-Improper Inventory Management"},
+                confidence=0.8,
+            )
+        ]
+
+    def _api_weak_auth(self) -> list[Finding]:
+        """Flag APIs discovered with no auth scheme, or with weak Basic auth."""
+        apis = self.graph.assets(AssetType.API)
+        if not apis:
+            return []
+        schemes = {s.value for s in self.graph.assets(AssetType.AUTH_SCHEME)}
+        findings: list[Finding] = []
+
+        # No authentication scheme observed alongside a discovered API surface.
+        if not schemes:
+            findings.append(
+                Finding(
+                    title="API surface without an observed authentication scheme",
+                    description=(
+                        f"{len(apis)} API(s) were discovered but no authentication "
+                        "scheme (Bearer, API-key, cookie, …) was observed in the "
+                        "captured headers, suggesting unauthenticated access or "
+                        "auth applied inconsistently."
+                    ),
+                    severity=Severity.MEDIUM,
+                    category="authentication",
+                    asset_keys=[a.key for a in apis],
+                    evidence=[Evidence(label=a.value, detail=str(a.attributes.get("style")))
+                              for a in apis[:20]],
+                    recommendation=(
+                        "Require authentication on all API endpoints and verify it is "
+                        "enforced server-side, not just in the client."
+                    ),
+                    references={"owasp": "API2:2023-Broken Authentication"},
+                    confidence=0.55,
+                )
+            )
+
+        if "basic" in schemes:
+            findings.append(
+                Finding(
+                    title="HTTP Basic authentication in use",
+                    description=(
+                        "HTTP Basic authentication was observed. It transmits "
+                        "base64-encoded (not encrypted) credentials on every request "
+                        "and offers no protection beyond the transport layer."
+                    ),
+                    severity=Severity.MEDIUM,
+                    category="authentication",
+                    asset_keys=[
+                        s.key
+                        for s in self.graph.assets(AssetType.AUTH_SCHEME)
+                        if s.value == "basic"
+                    ],
+                    evidence=[Evidence(label="scheme", detail="HTTP Basic")],
+                    recommendation=(
+                        "Prefer token-based auth (OAuth 2 / OIDC) over Basic; if Basic "
+                        "is unavoidable, enforce HTTPS and short-lived credentials."
+                    ),
+                    references={"cwe": "CWE-522", "owasp": "API2:2023-Broken Authentication"},
+                    confidence=0.6,
                 )
             )
         return findings

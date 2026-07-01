@@ -19,6 +19,7 @@ from typing import Any
 from recon_platform.agents import (
     ActiveReconAgent,
     AnalysisAgent,
+    APIDiscoveryAgent,
     BrowserAgent,
     DesktopAgent,
     NetworkAgent,
@@ -72,6 +73,9 @@ class ReconOrchestrator:
             self._bus, self._memory, self._llm, self._graph, self._settings
         )
         self._network = NetworkAgent(
+            self._bus, self._memory, self._llm, self._graph, self._settings
+        )
+        self._api = APIDiscoveryAgent(
             self._bus, self._memory, self._llm, self._graph, self._settings
         )
         self._analysis = AnalysisAgent(self._bus, self._memory, self._llm, self._graph)
@@ -207,6 +211,22 @@ class ReconOrchestrator:
         state.assets += assets
         state.relations += relations
 
+    async def _step_api(self, state: RunState) -> None:
+        """Optional API-discovery step (after network, before analysis).
+
+        A passive characterization layer over the endpoints/headers/traffic already
+        in the graph: REST inference, GraphQL / SOAP / gRPC discovery, and
+        auth-scheme detection. Runs after the network agent so its classified API
+        traffic is available; it no-ops cleanly when API discovery is disabled and
+        never issues new I/O.
+        """
+        if not self._settings.api_discovery.enabled:
+            return
+        await self._emit("step", name="api_discovery")
+        assets, relations = await self._api.run_api_discovery(state.engagement)
+        state.assets += assets
+        state.relations += relations
+
     async def _step_analyze(self, state: RunState) -> None:
         await self._emit("step", name="analyze")
         # Extend (not replace): browser-derived findings coexist with recon ones.
@@ -257,6 +277,7 @@ class ReconOrchestrator:
         await self._step_desktop(state)
         await self._step_active(state)
         await self._step_network(state)
+        await self._step_api(state)
         await self._step_analyze(state)
         await self._step_report(state)
 
@@ -308,6 +329,10 @@ class ReconOrchestrator:
             await self._step_network(s["state"])
             return s
 
+        async def api_node(s: dict) -> dict:
+            await self._step_api(s["state"])
+            return s
+
         async def analyze_node(s: dict) -> dict:
             await self._step_analyze(s["state"])
             return s
@@ -325,6 +350,7 @@ class ReconOrchestrator:
         builder.add_node("desktop", desktop_node)
         builder.add_node("active_recon", active_node)
         builder.add_node("network", network_node)
+        builder.add_node("api_discovery", api_node)
         builder.add_node("analyze", analyze_node)
         builder.add_node("report", report_node)
         builder.add_edge(START, "plan")
@@ -335,7 +361,8 @@ class ReconOrchestrator:
         builder.add_edge("verification", "desktop")
         builder.add_edge("desktop", "active_recon")
         builder.add_edge("active_recon", "network")
-        builder.add_edge("network", "analyze")
+        builder.add_edge("network", "api_discovery")
+        builder.add_edge("api_discovery", "analyze")
         builder.add_edge("analyze", "report")
         builder.add_edge("report", END)
 

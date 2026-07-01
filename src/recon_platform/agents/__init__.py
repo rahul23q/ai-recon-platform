@@ -2,6 +2,7 @@
 
 from recon_platform.agents.active_recon import ActiveReconAgent
 from recon_platform.agents.analysis import AnalysisAgent
+from recon_platform.agents.api_discovery import APIDiscoveryAgent
 from recon_platform.agents.base import BaseAgent
 from recon_platform.agents.browser import BrowserAgent
 from recon_platform.agents.desktop import DesktopAgent
@@ -22,6 +23,7 @@ __all__ = [
     "DesktopAgent",
     "ActiveReconAgent",
     "NetworkAgent",
+    "APIDiscoveryAgent",
     "AnalysisAgent",
     "ReportingAgent",
 ]

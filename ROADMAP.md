@@ -15,8 +15,8 @@ the established Protocol seams (agents, tools, renderers, bus, memory).
 | 4 | Desktop Automation Agent | ✅ |
 | 5 | Active Recon & Tool Plugins | ✅ |
 | 6 | Network Agent | ✅ |
-| 7 | API Discovery Agent | 🔜 |
-| 8 | JavaScript Analysis | ⏳ |
+| 7 | API Discovery Agent | ✅ |
+| 8 | JavaScript Analysis | 🔜 |
 | 9 | Authentication Workflows | ⏳ |
 | 10 | Persistence & State | ⏳ |
 | 11 | Vector Memory & Semantic Recall | ⏳ |
@@ -136,10 +136,26 @@ Phase 7.
 > Pipeline is now Planner → Recon → Browser → Vision → Verification → Desktop →
 > Active Recon → **Network** → Analysis → Reporting.
 
-## Phase 7 — API Discovery Agent ⏳
+## Phase 7 — API Discovery Agent ✅
 
-Discover and characterize APIs across REST, SOAP, GraphQL, and gRPC — schema
-inference, endpoint enumeration, and auth-scheme detection.
+An **API-Discovery agent** that discovers and characterizes APIs across REST,
+GraphQL, SOAP, and gRPC, wired behind the existing `Agent` Protocol and
+orchestrator. Delivered a dependency-free detection layer
+(`api_discovery/detectors.py`: API-style classification, REST resource/version
+parsing, request-parameter extraction, auth-scheme detection, and OpenAPI/Swagger
+parsing) and four `APIModule`s (`rest_inference`, `graphql_discovery`,
+`soap_grpc_discovery`, `auth_scheme_detection`) that correlate the endpoints,
+headers, JS files, and the Network agent's classified `API_ENDPOINT` assets
+already in the graph into new `API` / `API_PARAMETER` / `AUTH_SCHEME` assets.
+Additive analysis rules and an "API Discovery" report section surface the API
+inventory, unauthenticated surface, and weak (Basic) auth. It is **passive** (no
+new I/O) and opt-in, degrading to a clean no-op when disabled. The pipeline is now
+Planner → Recon → Browser → Vision → Verification → Desktop → Active Recon →
+Network → **API Discovery** → Analysis → Reporting. JavaScript-sourced endpoints
+and secrets feed this surface further in Phase 8.
+
+> Pipeline is now … → Active Recon → Network → **API Discovery** → Analysis →
+> Reporting.
 
 ## Phase 8 — JavaScript Analysis ⏳
 

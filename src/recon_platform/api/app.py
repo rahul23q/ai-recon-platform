@@ -32,7 +32,7 @@ def create_app(container: Container | None = None):  # noqa: C901 - factory
     from pydantic import BaseModel
 
     container = container or build_container()
-    app = FastAPI(title="recon-platform", version="0.6.0")
+    app = FastAPI(title="recon-platform", version="0.7.0")
 
     # In-memory run registry (swap for Redis/Postgres in the infra config).
     runs: dict[str, dict[str, Any]] = {}
@@ -60,6 +60,10 @@ def create_app(container: Container | None = None):  # noqa: C901 - factory
         # analysis over data already in the graph. Issues no new I/O; off by
         # default and degrades to a clean no-op when disabled.
         network: bool = False
+        # Opt-in API-discovery agent: passive REST / GraphQL / SOAP / gRPC
+        # characterization + auth-scheme detection over data already in the graph.
+        # Issues no new I/O; off by default.
+        api: bool = False
 
     @app.get("/healthz")
     async def healthz() -> dict[str, str]:
@@ -76,7 +80,7 @@ def create_app(container: Container | None = None):  # noqa: C901 - factory
         # container, so concurrent runs don't share state. An explicit Settings
         # is used only when the browser / vision agents are requested. Vision
         # implies browser (it analyzes the browser's screenshots).
-        if req.browser or req.vision or req.desktop or req.active or req.network:
+        if req.browser or req.vision or req.desktop or req.active or req.network or req.api:
             from recon_platform.core.config import Settings
 
             run_settings = Settings()
@@ -85,6 +89,7 @@ def create_app(container: Container | None = None):  # noqa: C901 - factory
             run_settings.desktop.enabled = req.desktop
             run_settings.active_recon.enabled = req.active
             run_settings.network.enabled = req.network
+            run_settings.api_discovery.enabled = req.api
             run_container = build_container(run_settings)
         else:
             run_container = build_container()

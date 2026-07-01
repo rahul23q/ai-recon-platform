@@ -6,11 +6,11 @@
 | | |
 |---|---|
 | **Project** | recon-platform — AI-powered Web App Security Reconnaissance |
-| **Current version** | `0.6.0` |
-| **Current phase** | **Phase 6 — Network Agent ✅ Completed** |
-| **Next milestone** | **Phase 7 — API Discovery Agent** |
+| **Current version** | `0.7.0` |
+| **Current phase** | **Phase 7 — API Discovery Agent ✅ Completed** |
+| **Next milestone** | **Phase 8 — JavaScript Analysis** |
 | **Last updated** | 2026-07-01 |
-| **Quality gates** | ✅ `ruff check` clean; `pytest` 86/87 (all 18 new network tests green). The same **pre-existing** verification test (`test_agreement_missing_reported_as_verified`) still fails on HEAD, unrelated to Phase 6 — see *Known issues* below. |
+| **Quality gates** | ✅ `ruff check` clean; `pytest` 103/104 (all 17 new API-discovery tests green, plus the 18 network tests). The same **pre-existing** verification test (`test_agreement_missing_reported_as_verified`) still fails on HEAD, unrelated to Phase 7 — see *Known issues* below. |
 
 ---
 
@@ -345,14 +345,55 @@ clean no-op when disabled. The pipeline is now Planner → Recon → Browser →
 
 ---
 
-## ⏭️ Next milestone — Phase 7: API Discovery Agent
+## ✅ Phase 7 — API Discovery Agent (Completed)
 
-Discover and characterize APIs across REST, SOAP, GraphQL, and gRPC — schema
-inference, endpoint enumeration, and auth-scheme detection, building on the
-network agent's traffic classification. See [ROADMAP.md](ROADMAP.md) for the full
-phase plan.
+Added an **API-Discovery agent** that discovers and characterizes APIs across
+REST, GraphQL, SOAP, and gRPC, behind the existing `Agent` Protocol and
+orchestrator with **zero rewrites** of earlier layers. Like the Network agent it
+is **entirely passive** — it issues no new I/O, has no external dependency, and
+correlates what earlier agents observed. Opt-in and off by default, degrading to a
+clean no-op when disabled. The pipeline is now Planner → Recon → Browser → Vision
+→ Verification → Desktop → Active Recon → Network → **API Discovery** → Analysis →
+Reporting.
 
-**Entry criteria:** Phase 6 green (met). **Do not** restart earlier phases or
+### Implemented features
+
+- **`api_discovery/` infrastructure** mirroring `network/`: a dependency-free
+  detection layer (`detectors.py`) carrying all logic as pure, directly
+  unit-testable functions — API-style classification (rest / graphql / soap /
+  grpc), REST resource/version parsing, request-parameter extraction (query +
+  identifier-style path segments), auth-scheme detection (Bearer / Basic / Digest
+  / API-key / cookie), and OpenAPI/Swagger parsing — plus an `APIModule` base and
+  a read-only `APIDiscoveryContext` snapshot.
+- **Four API modules** + a `build_api_modules` factory (honouring the
+  per-capability toggles): `rest_inference` (groups endpoints into REST APIs with
+  resources/version + emits `API_PARAMETER` assets), `graphql_discovery` (uses the
+  Network agent's classified `API_ENDPOINT` signal + path heuristics),
+  `soap_grpc_discovery`, and `auth_scheme_detection`. They emit new `API` /
+  `API_PARAMETER` / `AUTH_SCHEME` assets with `EXPOSES` relations. Every module
+  captures errors into `result.errors` and never raises.
+- **`APIDiscoveryAgent`** (role `API`) snapshots the graph, runs the modules,
+  merges results back, records a trace per module, and emits `api.*` A2A events.
+- **Orchestration**: an independent `api_discovery` step (sequential + LangGraph
+  node) after network and before analysis — the Planner's 3-task plan is untouched.
+- **Analysis & reporting**: additive rules for the API inventory, an
+  unauthenticated-API-surface flag, and a weak-Basic-auth flag; a new "API
+  Discovery" report section (APIs by style, auth schemes, parameters).
+- **Surfaces**: `APIDiscoveryPlugin` in the MCP catalogue (registered when
+  enabled), `recon passive-recon --api`, `recon api-discovery <target>`, an API
+  `api` flag, and `RECON_API_DISCOVERY__*` settings.
+- **Quality**: 17 new hermetic API-discovery tests (no network, no external deps);
+  `ruff check` clean; default offline run verified unchanged.
+
+---
+
+## ⏭️ Next milestone — Phase 8: JavaScript Analysis
+
+Extract endpoints, parameters, and potential secrets from JavaScript bundles and
+source maps; map the client-side attack surface and feed it into the graph (and
+onward into API discovery). See [ROADMAP.md](ROADMAP.md) for the full phase plan.
+
+**Entry criteria:** Phase 7 green (met). **Do not** restart earlier phases or
 regenerate completed code — extend via the existing seams.
 
 ---
@@ -361,6 +402,17 @@ regenerate completed code — extend via the existing seams.
 
 Add dated entries here as work proceeds. Newest first.
 
+- **2026-07-01** — Phase 7 (API Discovery Agent) completed and released as
+  `v0.7.0`. A passive API-Discovery agent characterizes APIs across REST, GraphQL,
+  SOAP, and gRPC — REST resource/version inference with parameter extraction,
+  GraphQL discovery (reusing the Network agent's classified traffic), SOAP/gRPC
+  detection, and auth-scheme detection — over a dependency-free detection layer and
+  four modules, emitting new `API` / `API_PARAMETER` / `AUTH_SCHEME` assets.
+  Additive analysis rules (API inventory, unauthenticated surface, weak Basic auth)
+  and an "API Discovery" report section surface the findings. Passive (no new I/O)
+  and off by default; pipeline is now … → Active Recon → Network → API Discovery →
+  Analysis → Reporting. 17 new hermetic tests, `ruff check` clean. (The same
+  pre-existing verification test still fails on HEAD, unrelated to this work.)
 - **2026-07-01** — Phase 6 (Network Agent) completed and released as `v0.6.0`. A
   passive Network agent correlates already-captured request/response data — JWT
   inspection (unsigned/symmetric/expired/sensitive-claim flags), CORS hygiene

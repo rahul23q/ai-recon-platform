@@ -145,6 +145,23 @@ def build_container(settings: Settings | None = None) -> Container:
 
         manager.register(NetworkPlugin(build_network_modules(settings), _network_ctx_factory))
 
+    # API-discovery modules register only when the agent is enabled. Like the
+    # network modules they are pure, dependency-free correlators over data already
+    # in the graph, so registration pulls in nothing extra and issues no I/O.
+    if settings.api_discovery.enabled:
+        from recon_platform.api_discovery.base import APIDiscoveryContext
+        from recon_platform.api_discovery.modules import build_api_modules
+        from recon_platform.plugins.api_discovery import APIDiscoveryPlugin
+
+        api_target = settings.authorized_targets[0] if settings.authorized_targets else ""
+
+        def _api_ctx_factory() -> APIDiscoveryContext:
+            # Standalone (MCP) invocation gets an empty snapshot; during a full run
+            # the APIDiscoveryAgent supplies the graph assets itself.
+            return APIDiscoveryContext(api_target, settings)
+
+        manager.register(APIDiscoveryPlugin(build_api_modules(settings), _api_ctx_factory))
+
     container.register_instance(PluginManager, manager)
 
     return container

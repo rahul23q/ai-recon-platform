@@ -123,6 +123,14 @@ class AssetType(StrEnum):
     JWT = "jwt"
     WEBSOCKET = "websocket"
     API_ENDPOINT = "api_endpoint"
+    # API-discovery assets (Phase 7 — API Discovery agent). API is a discovered
+    # API service carrying its ``attributes["style"]`` (rest | graphql | soap |
+    # grpc); API_PARAMETER is an inferred request parameter with its location in
+    # ``attributes["location"]`` (query | path); AUTH_SCHEME is a detected
+    # authentication scheme (bearer | basic | digest | api_key | cookie | oauth).
+    API = "api"
+    API_PARAMETER = "api_parameter"
+    AUTH_SCHEME = "auth_scheme"
 
 
 class RelationType(StrEnum):

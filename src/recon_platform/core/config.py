@@ -198,6 +198,32 @@ class NetworkSettings(BaseSettings):
     max_items: int = 500
 
 
+class APIDiscoverySettings(BaseSettings):
+    """API-discovery agent configuration (Phase 7 — API characterization).
+
+    **Off by default.** The API Discovery agent is a passive correlation layer:
+    it reads the endpoints, headers, JS files, and the Network agent's classified
+    API traffic already in the knowledge graph and characterizes the APIs behind
+    them — REST resource/version inference, GraphQL / SOAP / gRPC detection,
+    request-parameter extraction, and authentication-scheme detection — without
+    issuing any new requests. It has no external dependency and degrades to a
+    clean no-op when disabled.
+    """
+
+    model_config = SettingsConfigDict(env_prefix="RECON_API_DISCOVERY__")
+
+    enabled: bool = False
+    # Infer REST APIs (base path / version / resources) from endpoint URLs.
+    infer_rest: bool = True
+    # Discover GraphQL / SOAP / gRPC APIs from endpoints and captured traffic.
+    discover_graphql: bool = True
+    discover_soap_grpc: bool = True
+    # Detect authentication schemes from request/response headers.
+    detect_auth: bool = True
+    # Analysis budget: cap how many items each module processes.
+    max_items: int = 500
+
+
 class Settings(BaseSettings):
     """Root settings object — the single source of truth for configuration."""
 
@@ -217,6 +243,7 @@ class Settings(BaseSettings):
     desktop: DesktopSettings = Field(default_factory=DesktopSettings)
     active_recon: ActiveReconSettings = Field(default_factory=ActiveReconSettings)
     network: NetworkSettings = Field(default_factory=NetworkSettings)
+    api_discovery: APIDiscoverySettings = Field(default_factory=APIDiscoverySettings)
 
     # Engagement guardrail: when true, targets must pass the authorization gate.
     authorized_only: bool = True

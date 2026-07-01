@@ -235,6 +235,40 @@ class MarkdownRenderer:
                     lines.append(f"- [{scheme}] `{w.value}`")
                 lines.append("")
 
+        # API discovery (Phase 7) — only when the API agent produced assets.
+        apis = [a for a in bundle.assets if a.type == AssetType.API]
+        parameters = [a for a in bundle.assets if a.type == AssetType.API_PARAMETER]
+        auth_schemes = [a for a in bundle.assets if a.type == AssetType.AUTH_SCHEME]
+        if apis or auth_schemes:
+            lines.append("## API Discovery")
+            lines.append("")
+            if apis:
+                by_style: dict[str, int] = {}
+                for a in apis:
+                    s = str(a.attributes.get("style", "rest"))
+                    by_style[s] = by_style.get(s, 0) + 1
+                summary = ", ".join(f"{k}: {v}" for k, v in sorted(by_style.items()))
+                lines.append(f"**APIs discovered ({len(apis)}):** {summary}")
+                for a in apis[:40]:
+                    style = a.attributes.get("style", "rest")
+                    version = a.attributes.get("version")
+                    resources = a.attributes.get("resources") or []
+                    extra = f" v{version}" if version else ""
+                    if resources:
+                        extra += " — " + ", ".join(str(r) for r in resources[:8])
+                    lines.append(f"- [{style}] `{a.value}`{extra}")
+                lines.append("")
+            if auth_schemes:
+                names = ", ".join(sorted({s.value for s in auth_schemes}))
+                lines.append(f"**Authentication schemes ({len(auth_schemes)}):** {names}")
+                lines.append("")
+            if parameters:
+                lines.append(f"**Request parameters ({len(parameters)}):**")
+                for p in parameters[:40]:
+                    loc = p.attributes.get("location", "query")
+                    lines.append(f"- `{p.attributes.get('name', p.value)}` ({loc})")
+                lines.append("")
+
         # Appendix: reasoning trace
         lines.append("## Appendix — Reasoning Trace")
         lines.append("")

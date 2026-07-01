@@ -4,6 +4,58 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.7.0] — 2026-07-01
+
+### Phase 7 — API Discovery Agent (Completed)
+
+An **API-Discovery agent** that discovers and characterizes APIs across REST,
+GraphQL, SOAP, and gRPC, wired behind the existing `Agent` Protocol and
+orchestrator without rewriting any earlier layer. Like the Network agent it is
+**entirely passive** — it issues no new I/O and has no external dependency; it
+simply correlates what earlier agents observed. Opt-in and off by default,
+degrading to a clean no-op when disabled. The pipeline is now Planner → Recon →
+Browser → Vision → Verification → Desktop → Active Recon → Network → **API
+Discovery** → Analysis → Reporting.
+
+#### Added
+
+- **API-discovery infrastructure** (`api_discovery/`): a dependency-free detection
+  layer (`detectors.py`) carrying all logic as pure, directly unit-testable
+  functions — API-style classification (rest / graphql / soap / grpc), REST
+  resource/version parsing, request-parameter extraction (query + identifier-style
+  path segments), auth-scheme detection (Bearer / Basic / Digest / API-key /
+  cookie), and OpenAPI/Swagger parsing — plus an `APIModule` base and a read-only
+  `APIDiscoveryContext` snapshot.
+- **Four API modules** + a `build_api_modules` factory (honouring the
+  per-capability toggles): `rest_inference` (groups endpoint URLs into REST APIs
+  with base path / version / resources and emits `API_PARAMETER` assets),
+  `graphql_discovery` (reuses the Network agent's classified `API_ENDPOINT` signal
+  plus path heuristics), `soap_grpc_discovery`, and `auth_scheme_detection`. They
+  emit new `API` / `API_PARAMETER` / `AUTH_SCHEME` assets with `EXPOSES`
+  relations. Modules are defensive — errors are captured in `result.errors`, never
+  raised.
+- **`APIDiscoveryAgent`** (role `API`) that snapshots the graph, runs the modules,
+  merges results back, records a reasoning trace per module, and emits `api.*` A2A
+  events.
+- **Orchestration**: an independent `api_discovery` step (sequential + LangGraph
+  node) after network and before analysis — the Planner's 3-task plan is untouched.
+- **Analysis & reporting**: additive rules for the API inventory, an
+  unauthenticated-API-surface flag, and a weak-Basic-auth flag; a new "API
+  Discovery" report section (APIs by style, auth schemes, parameters).
+- **Surfaces**: `APIDiscoveryPlugin` in the MCP catalogue (registered when
+  enabled), `recon passive-recon --api`, `recon api-discovery <target>`, an API
+  `api` flag, and `RECON_API_DISCOVERY__*` settings.
+- **New domain types**: `AssetType.API` / `API_PARAMETER` / `AUTH_SCHEME` (the
+  `AgentRole.API` role and `WorkflowType.API_DISCOVERY` already existed).
+
+#### Quality
+
+- 17 new hermetic tests (`tests/test_api_discovery.py`): detector unit tests,
+  module tests over a hand-built context, and a stubbed end-to-end run proving API
+  assets reach the graph, become findings, and render a report section.
+- `ruff check` clean. The pre-existing `test_agreement_missing_reported_as_verified`
+  failure on HEAD is unrelated to this work (see PROJECT_STATUS.md → Known issues).
+
 ## [0.6.0] — 2026-07-01
 
 ### Phase 6 — Network Agent (Completed)
